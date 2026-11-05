@@ -5,9 +5,19 @@ It lives in [`apps/the_grid`](apps/the_grid) and is built on this repository's k
 data layer (boost from the sport display or the engine unit, temperatures, fuel pressures, timing,
 power and torque), with ethanol content added.
 
-- **Pages:** Drive (tach, speed, boost, power/torque, oil/coolant/trans/intake/ethanol), Vitals
-  (twelve live values), Track (0-60 and 1/4 mile from the car's speed signal, live power/torque).
+- **Look:** its own HUD layer ([`hud.js`](apps/the_grid/hud.js)): a light-grid floor that runs with
+  road speed, reactor dials, an identity disc behind the speed (its rim is the shift light),
+  cut-corner neon panels, leader lines.
+- **Pages:** Drive (tach, speed, boost, ethanol, power/torque, oil/coolant/trans/intake), Vitals
+  (twelve live values with five-minute traces), Track (0-60 and 1/4 mile from the car's speed
+  signal, live power/torque), Engine (exhaust flap, engine map with your own map names in
+  `config.mapNames`, Max Cooling).
+- **Engine page safety:** it runs Engine Config's car-tested command code unchanged: nothing is
+  sent until a button is pressed, the flap is simulated until "Exhaust Flap" is armed, and the
+  tune sends nothing while "Tuning software" is Off (MHD: map 2F 01, Max Cooling 2F 03).
 - **Identities:** Sam (cyan), Flynn (white), Rinzler (orange), Ares (red), in Settings.
+- **Fonts:** Orbitron, Rajdhani and Share Tech Mono (SIL Open Font License, `kit/fonts-src/grid`),
+  baked by `kit/tools/bake_grid_fonts.py`.
 - **Install:** add this repository as a source in the MGU Store (Settings > Add source >
   `tmor05/The-Grid`); the Store builds The Grid on the head unit against its own SDK. This
   repository's `mgu-repo.json` offers only The Grid; the renderer and controller gate it needs come

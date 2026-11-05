@@ -1,8 +1,8 @@
 {
   "id": "the_grid",
   "title": "The Grid",
-  "description": "The Grid: performance dashboard for the X4M. Drive, Vitals and Track pages, four Grid identities.",
-  "version": "0.1.0",
+  "description": "The Grid: a Tron-style HUD for the BMW MGU (iDrive 7). Drive (tach, identity-disc speedometer, boost, ethanol), Vitals, Track timers, and Engine: exhaust flap, MHD / BM3 map switching with your own map names, and Max Cooling (Engine Config's car-tested commands, off until armed in Settings)",
+  "version": "0.2.0",
   "vendor": "custom",
   "loggingId": "OAB7",
   "iconGlyph": "GRD",
@@ -98,6 +98,46 @@
         [
           "track",
           "Track"
+        ],
+        [
+          "engine",
+          "Engine"
+        ]
+      ]
+    },
+    {
+      "key": "tuner",
+      "label": "Tuning software",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Off · nothing is sent to the car (safe)"
+        ],
+        [
+          "bm3",
+          "BM3 · engine map"
+        ],
+        [
+          "mhd",
+          "MHD · engine map, Max Cooling"
+        ]
+      ]
+    },
+    {
+      "key": "arm",
+      "label": "Exhaust Flap",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Disarmed · simulated (safe)"
+        ],
+        [
+          "on",
+          "Armed · actuates the real valve"
         ]
       ]
     },
@@ -360,7 +400,7 @@
       "key": "oilWarn",
       "label": "Oil temp warning",
       "type": "number",
-      "unit": "\u00b0C",
+      "unit": "°C",
       "default": 125,
       "steps": [
         110,
@@ -1221,6 +1261,13 @@
           "note": "the same PID with OBD service 01"
         }
       ]
-    }
+    },
+    "bm3MarkerAddress": "807FFE50",
+    "mapNames": [
+      "Map 1",
+      "Map 2",
+      "Map 3",
+      "Map 4"
+    ]
   }
 }
