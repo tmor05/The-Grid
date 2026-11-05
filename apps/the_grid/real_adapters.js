@@ -2,6 +2,11 @@
 /**
  * real_adapters.js - car-touching adapters with the CONFIRMED actuation command.
  *
+ * The Grid's copy of Engine Config's file, with two changes for the S58: the regulated flap
+ * (Mg1RegAgk, 2F 611E), which the S58 has instead of the plain one (2F 60FD, refused there), and
+ * MHD's own flap control (2F 02 nn, held while driving) falling back to BMW's job when the flash
+ * refuses it. MHD is picked by The Grid's "Tuning software" setting (controller.js platform).
+ *
  * ==========================  SAFETY  ==========================================
  * This adapter ships DISARMED (`armed: false`). Actuation is gated behind the app's
  * own "Car control" setting (Settings → Armed): disarmed = simulated only (touches
@@ -99,6 +104,41 @@ const Mg1ElAgk = {
 };
 
 /*
+ * The regulated flap (S58): 2F 611E GER_EL_AGK 03 <% x 81.92, 2 bytes> / 00 back to the DME, position
+ * 22 651E. 10 % = 03 33 (open), 90 % = 1C CD (closed), as the SGBD's argument says and as a G80 S58
+ * with MHD accepted it (car-apps issue #3, IterioDev's flap.js). It is BMW's test job: the DME drops it
+ * after about 20 s or as soon as the car moves, so it works parked only.
+ */
+const REG_DID = [0x61, 0x1E];
+const regTv = (pct) => { const raw = Math.round(pct * 81.92) & 0xFFFF; return [(raw >> 8) & 0xFF, raw & 0xFF]; };
+const Mg1RegAgk = {
+    id: 'mg1-reg-agk',
+    name: 'BMW test job · regulated flap',
+    simulated: false,
+    armed: false,                            // armed at runtime from the app's arm setting
+    OPEN_REQUEST: { sid: 0x2F, data: REG_DID.concat([0x03], regTv(PCT_OPEN)) },
+    CLOSE_REQUEST: { sid: 0x2F, data: REG_DID.concat([0x03], regTv(PCT_CLOSE)) },
+    OEM_REQUEST: { sid: 0x2F, data: REG_DID.concat([0x00]) },
+    match(ident) { return !!(ident && ident.elAgkReg && ident.elAgkReg.supported); },
+    _guard() {
+        if (!this.armed) { const err = new Error('flap control is not armed'); err.blocked = true; throw err; }
+    },
+    async _send(req, link) {
+        this._guard();
+        const r = await link.sendToDme(req.sid, req.data);
+        return { accepted: !!r.ok, confirmed: 'UNKNOWN', detail: r.ok ? 'DME accepted (parked only, about 20 s)' : (r.reason || 'rejected') };
+    },
+    async open(link) { return this._send(this.OPEN_REQUEST, link); },
+    async closed(link) { return this._send(this.CLOSE_REQUEST, link); },
+    async oem(link) { return this._send(this.OEM_REQUEST, link); },
+    async read(link) {
+        const s = await link.readElAgkReg();
+        const confirmed = s && s.pct != null ? (s.pct <= 20 ? 'OPEN' : s.pct >= 80 ? 'CLOSED' : 'UNKNOWN') : 'UNKNOWN';
+        return { accepted: !!(s && s.supported), confirmed, detail: s && s.pct != null ? s.pct + ' %' : 'no read' };
+    },
+};
+
+/*
  * MHD-flashed DME: the tune itself answers short 0x2F controls. Captured from MHD's own app on an
  * MHD+ S58 (a1-mapping, idrive7-apps PR #23):
  *   2F 01 nn  map slot      (00 = map 1 .. 03 = map 4)
@@ -111,7 +151,7 @@ const MHD = { MAP: 0x01, FLAP: 0x02, COOLING: 0x03 };
 async function mhdSend(link, fn, value) {
     const r = await link.sendToDme(0x2F, [fn, value]);
     const ok = !!r.ok && r.sid === 0x6F && r.data[0] === fn && r.data[1] === value;
-    return { accepted: ok, detail: ok ? 'DME took it' : (r.reason || 'unexpected reply') };
+    return { accepted: ok, nrc: r.nrc, detail: ok ? 'DME took it' : (r.reason || 'unexpected reply') };
 }
 
 const MhdFlap = {
@@ -128,16 +168,24 @@ const MhdFlap = {
             throw err;
         }
     },
-    async _set(link, value) {
+    fallback: null,                          // BMW's job for this DME (adapters.pick), if MHD refuses its own
+    async _set(link, value, action) {
         this._guard();
         const r = await mhdSend(link, MHD.FLAP, value);
-        return { accepted: r.accepted, confirmed: 'UNKNOWN', detail: r.detail };
+        if (r.accepted) return { accepted: true, confirmed: 'UNKNOWN', detail: 'MHD holds it' };
+        // a refusal for good (not busy / conditions / no answer): this flash has no flap control of its own
+        const transient = r.nrc === 0x21 || r.nrc === 0x22 || r.nrc === 0x78 || r.nrc == null;
+        if (!transient && this.fallback) {
+            const f = await this.fallback[action](link);
+            return Object.assign({}, f, { detail: 'no MHD flap control, ' + f.detail });
+        }
+        return { accepted: false, confirmed: 'UNKNOWN', detail: r.detail };
     },
-    async open(link) { return this._set(link, 0x01); },
-    async closed(link) { return this._set(link, 0x02); },
-    async oem(link) { return this._set(link, 0x00); },
-    // the tune has no read-back of the flap that we know of: the state stays as requested
-    async read() { return { accepted: true, confirmed: 'UNKNOWN', detail: 'no read-back on MHD' }; },
+    async open(link) { return this._set(link, 0x01, 'open'); },
+    async closed(link) { return this._set(link, 0x02, 'closed'); },
+    async oem(link) { return this._set(link, 0x00, 'oem'); },
+    // no read-back from MHD; the DME's position read where the car has one
+    async read(link) { return this.fallback && this.fallback.read ? this.fallback.read(link) : { accepted: true, confirmed: 'UNKNOWN', detail: 'no read-back on MHD' }; },
 };
 
 /*
@@ -174,4 +222,4 @@ const Bm3Flap = {
     async read() { return { accepted: true, confirmed: 'UNKNOWN', detail: 'no read-back on BM3' }; },
 };
 
-module.exports = { Mg1ElAgk, MhdFlap, Bm3Flap, MHD, mhdSend, PCT_OPEN, PCT_CLOSE, tvBytes, drive, release };
+module.exports = { Mg1ElAgk, Mg1RegAgk, MhdFlap, Bm3Flap, MHD, mhdSend, PCT_OPEN, PCT_CLOSE, tvBytes, drive, release };

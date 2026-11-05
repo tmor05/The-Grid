@@ -17,7 +17,7 @@ const adapters = require('./adapters');
 const { MHD, mhdSend } = require('./real_adapters');
 
 const MODES = ['OEM', 'OPEN', 'CLOSED'];
-const REFRESH_KEYS = ['arm'];                   // the settings (app.json) refresh() depends on
+const REFRESH_KEYS = ['arm', 'tuner'];          // the settings (app.json) refresh() depends on
 
 class Controller {
     constructor(ctx) {
@@ -68,7 +68,7 @@ class Controller {
     }
 
     /** Platform setting: 'auto' (the unlock check decides), 'bm3' or 'mhd'. */
-    get platform() { return this.ctx.settings.get('platform') || 'auto'; }
+    get platform() { const t = this.ctx.settings.get('tuner'); return t === 'mhd' || t === 'bm3' ? t : 'auto'; }
     /** MHD controls: the unlock check answered "MHD...", or the platform is set to MHD. */
     get mhd() { return !!(this.ident && this.ident.mhd && this.ident.mhd.flashed) || this.platform === 'mhd'; }
     /** BM3 controls without a ROM layout (flap, ASD): the marker was found, or the platform is set to Bootmod3. */
@@ -84,7 +84,7 @@ class Controller {
         if (!this.armedSetting && this.state.busy && this._flight) await this._flight;
         adapters.armReal(this.armedSetting);        // arm/disarm from the setting before picking
         if (this.link && this.link.available && this.source === 'car') {
-            try { this.ident = await this.link.identifyDme(this.platform); } catch (e) { this.ident = { present: false, platform: this.platform }; }
+            try { this.ident = await this.link.identifyDme(this.platform); this.ident.platform = this.platform; } catch (e) { this.ident = { present: false, platform: this.platform }; }
         } else {
             this.ident = { present: false, platform: this.platform };
         }

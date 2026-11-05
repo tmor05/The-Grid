@@ -107,13 +107,14 @@ const Unavailable = {
 
 // Registry. Real adapters first (most specific), then the template. All are
 // DISARMED until validated + authorised; Simulated is the safe fallback in sim mode.
-const { Mg1ElAgk, MhdFlap, Bm3Flap } = require('./real_adapters');
+const { Mg1ElAgk, Mg1RegAgk, MhdFlap, Bm3Flap } = require('./real_adapters');
 // a tuned DME first (MHD, BM3): its own flap values
-const REAL_ADAPTERS = [MhdFlap, Bm3Flap, Mg1ElAgk, RealTemplate];
+// the regulated flap (S58) before the plain one: an S58 answers the plain read with 00 00 but refuses its job
+const REAL_ADAPTERS = [MhdFlap, Bm3Flap, Mg1RegAgk, Mg1ElAgk, RealTemplate];
 
 /** Arm/disarm the validated real adapters from the app's "Car control" setting.
  * Disarmed (default) = the app runs simulated and sends nothing to the car. */
-function armReal(on) { Mg1ElAgk.armed = !!on; MhdFlap.armed = !!on; Bm3Flap.armed = !!on; }
+function armReal(on) { Mg1ElAgk.armed = !!on; Mg1RegAgk.armed = !!on; MhdFlap.armed = !!on; Bm3Flap.armed = !!on; }
 
 /**
  * Pick the adapter for this car. Returns { adapter, real, blocked, reason }.
@@ -126,7 +127,13 @@ function pick(source, ident) {
     if (source !== 'car') return { adapter: Simulated, real: false, blocked: false, reason: 'simulated (safe) mode' };
     for (let i = 0; i < REAL_ADAPTERS.length; i++) {
         const a = REAL_ADAPTERS[i];
-        try { if (a.armed && a.match(ident)) return { adapter: a, real: true, blocked: false, reason: a.name }; } catch (e) { /* ignore */ }
+        try {
+            if (a.armed && a.match(ident)) {
+                // MHD's own flap control falls back to BMW's job for this DME when the flash refuses it
+                if (a === MhdFlap) MhdFlap.fallback = [Mg1RegAgk, Mg1ElAgk].filter((b) => b.armed && b.match(ident))[0] || null;
+                return { adapter: a, real: true, blocked: false, reason: a.name };
+            }
+        } catch (e) { /* ignore */ }
     }
     for (let i = 0; i < REAL_ADAPTERS.length; i++) {
         const a = REAL_ADAPTERS[i];

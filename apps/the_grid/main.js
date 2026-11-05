@@ -973,7 +973,9 @@ mgu.run({
             const want = v.confirmed !== 'UNKNOWN' ? v.confirmed : v.requested;
             const tgt = want === 'OPEN' ? 1 : want === 'CLOSED' ? 0 : want === 'OEM' ? 0.18 : 0.5;
             exAngle += (tgt - exAngle) * 0.15; if (Math.abs(tgt - exAngle) < 0.003) exAngle = tgt;
-            H.panel(cv, t, xl, y0, wl, h, 'EXHAUST FLAP', { code: v.simulated ? 'SIMULATED' : 'DME 60FD', delay: 0 });
+            const exPath = v.simulated ? 'SIMULATED' : /^MHD/.test(v.adapterName) ? 'MHD 2F02' : /regulated/.test(v.adapterName) ? 'DME 611E'
+                : /MG1/.test(v.adapterName) ? 'DME 60FD' : 'NOT AVAILABLE';
+            H.panel(cv, t, xl, y0, wl, h, 'EXHAUST FLAP', { code: exPath, delay: 0 });
             const hot = want === 'OPEN' ? (t.accent2 || t.accent) : t.crit;
             tip(cv, t, xl + wl / 2 - 82, y0 + 128, 66, exAngle, hot);
             tip(cv, t, xl + wl / 2 + 82, y0 + 128, 66, exAngle, hot);
@@ -982,6 +984,8 @@ mgu.run({
             const exSub = v.error ? v.error : v.busy ? 'SENDING…' : v.simulated ? 'SIMULATED · ARM "EXHAUST FLAP" IN SETTINGS'
                 : want === 'OEM' ? 'THE DME IS IN CONTROL' : v.confirmed === v.requested ? 'CONFIRMED BY THE DME' : v.accepted ? 'ACCEPTED BY THE DME' : '';
             H.mono(cv, exSub, xl + wl / 2, y0 + 282, 13, v.error ? t.crit : v.simulated ? t.warn : dimC(t, 0.7), 'center');
+            if (/^DME/.test(exPath)) H.mono(cv, "BMW'S TEST JOB · PARKED ONLY · THE DME ENDS IT AFTER ~20 S", xl + wl / 2, y0 + 304, 12, dimC(t, 0.5), 'center');
+            else if (exPath === 'MHD 2F02') H.mono(cv, "MHD'S OWN FLAP CONTROL · HOLDS WHILE DRIVING", xl + wl / 2, y0 + 304, 12, dimC(t, 0.5), 'center');
             [['OPEN', 'OPEN'], ['CLOSE', 'CLOSED'], ['OEM', 'OEM']].forEach(([label, mode], i) => {
                 H.button(cv, t, xl + 25 + i * 146, by, 132, 54, label, exPress(mode), { on: v.requested === mode, busy: v.busy && mode !== 'OEM', key: 'grid_ex_' + mode });
             });
@@ -1073,7 +1077,7 @@ mgu.run({
             if (k === 'cluster') { if (clusterOn()) cluster.start(); else { cluster.stop(); clusterShown = false; } }
             if (['theme', 'tempUnit', 'pressUnit', 'boostMax'].indexOf(k) >= 0) cluster.refresh();
             if (k === 'arm') exhaust.refresh().catch((e) => log.error('exhaust', e));
-            if (k === 'tuner') tune.refresh().catch((e) => log.error('tune', e));
+            if (k === 'tuner') exhaust.refresh().then(() => tune.refresh()).catch((e) => log.error('tune', e));
             if (k === 'page') { page = Math.max(0, PAGES.indexOf(settings.get('page'))); H.reboot(); }
         });
         log.info('first render');

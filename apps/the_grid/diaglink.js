@@ -28,6 +28,10 @@ const DID_SW = [0xF1, 0x95];
 const DID_ASW_EL_AGK = [0x62, 0xFD];
 const DID_ASG_EL_AGK = [0x64, 0xFD];
 const DID_ISAGK = [0x4A, 0x65];
+// The regulated flap ("geregelte" EL_AGK, dme8ff_r GER_EL_AGK / ASG_GER_EL_AGK): the S58 has this one.
+// Its plain channel (64FD) reads 00 00 and refuses 2F 60FD with 7F 2F 22 (car-apps issue #3, a G80
+// S58 with MHD; IterioDev's flap.js). Read 22 651E: position, two banks, counts / 81.92 = %.
+const DID_ASG_GER_EL_AGK = [0x65, 0x1E];
 
 function bytesToHex(b) { return (b || []).map((x) => hex(x)).join(' '); }
 
@@ -93,8 +97,17 @@ class DiagLink {
             commandedPct: asw.ok && asw.data.length >= 2 ? ((asw.data[0] << 8) | asw.data[1]) / 100 : null,
             positionRaw: asg.ok ? bytesToHex(asg.data) : null,
         };
+        ident.elAgkReg = await this.readElAgkReg();
         this.log.info('DME ident: ' + JSON.stringify(ident));
         return ident;
+    }
+
+    /** The regulated flap's position (read-only): {supported: true|false|null (busy: not known), pct}. */
+    async readElAgkReg() {
+        const r = await this.readDid(DID_ASG_GER_EL_AGK);
+        if (r.ok && r.data.length >= 2) return { supported: true, pct: Math.round(((r.data[0] << 8) | r.data[1]) / 81.92 * 10) / 10 };
+        if (r.nrc === 0x21 || r.nrc === 0x22 || r.nrc === 0x78 || r.nrc == null) return { supported: null, pct: null };
+        return { supported: false, pct: null };
     }
 
     /** Read the electric-flap state back (read-only). Returns {supported, commandedPct, positionRaw}. */
