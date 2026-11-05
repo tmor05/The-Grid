@@ -28,7 +28,10 @@ let bootAt = now();
 /** Start the draw-in again (app start, page change). */
 function reboot() { bootAt = now(); }
 /** 0..1 (eased) for an element that starts `delay` ms into the draw-in and takes `dur` ms. */
-function boot(delay, dur) { return ease((now() - bootAt - (delay || 0)) / (dur || 500)); }
+let still = 0;
+function boot(delay, dur) { return still ? 1 : ease((now() - bootAt - (delay || 0)) / (dur || 500)); }
+/** Run draw() with every draw-in finished (pictures drawn once, for the cluster). */
+function drawn(draw) { still++; try { return draw(); } finally { still--; } }
 
 /* ---------- small pieces ---------- */
 const pol = (cx, cy, r, a) => [cx + Math.sin(a * RAD) * r, cy - Math.cos(a * RAD) * r];
@@ -389,58 +392,94 @@ function block(cv, cx, cy, r, a, s, c) {
  * (degrees, grows with road speed); o.shift = 0..1 toward the shift point (lights the rim's top
  * arc); o.over = at the shift point (the rim flashes).
  */
-function disc(cv, t, cx, cy, R, o) {
-    const id = o.id || 'sam', c = t.accent, b = boot(o.delay || 100, 900), rot = o.rot || 0;
-    if (b <= 0) return;
-    R *= 0.86 + 0.14 * b;
-    cv.alpha(b);
-    // body
+/** The disc's body: soft glow and the dark face under its rings. */
+function discBody(cv, t, cx, cy, R) {
+    const c = t.accent;
     cv.circle(cx, cy, R * 1.22, A(c, 0.025));
     cv.circle(cx, cy, R * 1.08, A(c, 0.04));
     cv.circle(cx, cy, R, A(t.bg, 0.94));
     cv.circle(cx, cy, R * 0.99, A(c, 0.04));
+}
+/**
+ * The disc's rings, in two sets that turn opposite ways: part 'a' (the rim) at rot, part
+ * 'b' (the inner rings) against it. The cluster draws each set once and lets its renderer
+ * turn it, so a set's rings turn together there.
+ */
+function discRings(cv, t, id, cx, cy, R, part, rot) {
+    const c = t.accent, A_ = part === 'a';
     if (id === 'flynn') {
-        [[0.97, 1.5], [0.93, 3.5], [0.89, 1.5]].forEach(([f, w]) => {
-            for (let k = 0; k < 8; k++) neonArc(cv, cx, cy, R * f, w, rot + k * 45 + 3, rot + k * 45 + 42, A(c, w > 2 ? 1 : 0.7), w > 2 ? 1 : 0.4);
-        });
-        for (let i = 0; i < 48; i++) radial(cv, cx, cy, R * 0.79, R * 0.85, rot * 0.5 + i * 7.5, 4, A(c, i % 6 === 0 ? 0.8 : 0.32));
-        neonArc(cv, cx, cy, R * 0.71, 4, 0, 360, c);
-        spinner(cv, cx, cy, R * 0.645, R * 0.655, -rot * 0.8, Array.from({ length: 72 }, (_, i) => [i * 5, 2.5]), A(c, 0.45));
+        if (A_) {
+            [[0.97, 1.5], [0.93, 3.5], [0.89, 1.5]].forEach(([f, w]) => {
+                for (let k = 0; k < 8; k++) neonArc(cv, cx, cy, R * f, w, rot + k * 45 + 3, rot + k * 45 + 42, A(c, w > 2 ? 1 : 0.7), w > 2 ? 1 : 0.4);
+            });
+            for (let i = 0; i < 48; i++) radial(cv, cx, cy, R * 0.79, R * 0.85, rot * 0.5 + i * 7.5, 4, A(c, i % 6 === 0 ? 0.8 : 0.32));
+        } else {
+            neonArc(cv, cx, cy, R * 0.71, 4, 0, 360, c);
+            spinner(cv, cx, cy, R * 0.645, R * 0.655, -rot * 0.8, Array.from({ length: 72 }, (_, i) => [i * 5, 2.5]), A(c, 0.45));
+        }
     } else if (id === 'rinzler') {
-        for (let k = 0; k < 3; k++) neonArc(cv, cx, cy, R * 0.95, 9, rot * 1.3 + k * 120 + 8, rot * 1.3 + k * 120 + 112, c);
-        for (let k = 0; k < 3; k++) neonArc(cv, cx, cy, R * 1.05, 2.5, -rot * 1.3 + k * 120 + 40, -rot * 1.3 + k * 120 + 100, A(c, 0.85), 0.6);
-        for (let i = 0; i < 60; i++) {
-            const a = rot * 0.6 + i * 6;
-            cv.arc(cx, cy, R * (i % 2 ? 0.80 : 0.78), R * (i % 2 ? 0.84 : 0.87), a, a + 3.6, A(c, i % 2 ? 0.3 : 0.65));
+        if (A_) {
+            for (let k = 0; k < 3; k++) neonArc(cv, cx, cy, R * 0.95, 9, rot * 1.3 + k * 120 + 8, rot * 1.3 + k * 120 + 112, c);
+            for (let i = 0; i < 60; i++) {
+                const a = rot * 0.6 + i * 6;
+                cv.arc(cx, cy, R * (i % 2 ? 0.80 : 0.78), R * (i % 2 ? 0.84 : 0.87), a, a + 3.6, A(c, i % 2 ? 0.3 : 0.65));
+            }
+        } else {
+            for (let k = 0; k < 3; k++) neonArc(cv, cx, cy, R * 1.05, 2.5, -rot * 1.3 + k * 120 + 40, -rot * 1.3 + k * 120 + 100, A(c, 0.85), 0.6);
+            for (let k = 0; k < 3; k++) neonArc(cv, cx, cy, R * 0.66, 3, -rot + k * 120, -rot + k * 120 + 96, A(c, 0.9));
         }
-        for (let k = 0; k < 3; k++) neonArc(cv, cx, cy, R * 0.66, 3, -rot + k * 120, -rot + k * 120 + 96, A(c, 0.9));
     } else if (id === 'ares') {
-        neon(cv, ngon(cx, cy, R * 0.97, 12, rot), 4.5, c);
-        neon(cv, ngon(cx, cy, R * 0.9, 12, rot + 15), 1.5, A(c, 0.55), 0.4);
-        for (let i = 0; i < 30; i++) {
-            if (i % 7 === 3) continue;
-            block(cv, cx, cy, R * 0.8, -rot * 0.7 + i * 12, i % 3 === 0 ? 11 : 7, A(c, i % 3 === 0 ? 0.85 : 0.35));
+        if (A_) {
+            neon(cv, ngon(cx, cy, R * 0.97, 12, rot), 4.5, c);
+            neon(cv, ngon(cx, cy, R * 0.9, 12, rot + 15), 1.5, A(c, 0.55), 0.4);
+        } else {
+            for (let i = 0; i < 30; i++) {
+                if (i % 7 === 3) continue;
+                block(cv, cx, cy, R * 0.8, -rot * 0.7 + i * 12, i % 3 === 0 ? 11 : 7, A(c, i % 3 === 0 ? 0.85 : 0.35));
+            }
+            neon(cv, ngon(cx, cy, R * 0.67, 8, -rot), 3, A(c, 0.9));
         }
-        neon(cv, ngon(cx, cy, R * 0.67, 8, -rot), 3, A(c, 0.9));
-    } else {
+    } else if (A_) {
         for (let k = 0; k < 4; k++) neonArc(cv, cx, cy, R * 0.95, 7, rot + k * 90 + 6, rot + k * 90 + 84, c);
         neonArc(cv, cx, cy, R * 0.88, 1.5, 0, 360, A(c, 0.6), 0.4);
         for (let i = 0; i < 36; i++) radial(cv, cx, cy, R * 0.74, R * 0.82, rot * 0.5 + i * 10, 3, A(c, 0.28));
+    } else {
         neonArc(cv, cx, cy, R * 0.66, 3.5, -rot * 0.7 + 10, -rot * 0.7 + 170, A(c, 0.95));
         neonArc(cv, cx, cy, R * 0.66, 3.5, -rot * 0.7 + 190, -rot * 0.7 + 350, A(c, 0.95));
     }
-    // core: dark under the digits
+}
+/** The dark core the numbers sit on. */
+function discCore(cv, t, cx, cy, R) {
     cv.circle(cx, cy, R * 0.6, A(t.bg, 0.9));
-    cv.circle(cx, cy, R * 0.6, A(c, 0.03));
-    // shift lights: the rim's top arc
-    const n = 17, lit = clamp(o.shift || 0, 0, 1) * n, flash = o.over && Math.floor(now() / 80) % 2 === 0;
+    cv.circle(cx, cy, R * 0.6, A(t.accent, 0.03));
+}
+/** Shift lights: the rim's top arc, 0..1 toward the shift point; `over` flashes it. */
+function discShift(cv, t, cx, cy, R, shift, over) {
+    const n = 17, lit = clamp(shift || 0, 0, 1) * n, flash = over && Math.floor(now() / 80) % 2 === 0, c = t.accent;
     for (let i = 0; i < n; i++) {
         const a = -66 + i * 132 / n + 1.2, e = -66 + (i + 1) * 132 / n - 1.2, f = i / (n - 1);
-        const col = o.over ? t.crit : f < 0.55 ? c : f < 0.8 ? t.warn : t.crit;
-        const part = o.over ? (flash ? 1 : 0.12) : clamp(lit - i, 0, 1);
+        const col = over ? t.crit : f < 0.55 ? c : f < 0.8 ? t.warn : t.crit;
+        const part = over ? (flash ? 1 : 0.12) : clamp(lit - i, 0, 1);
         if (part > 0) cv.arc(cx, cy, R * 1.11, R * 1.21, a, e, A(col, 0.22 * part));
         cv.arc(cx, cy, R * 1.13, R * 1.19, a, e, A(col, part > 0 ? 0.25 + 0.75 * part : 0.07));
     }
+}
+
+/**
+ * The identity disc behind the speed. id: 'sam' | 'flynn' | 'rinzler' | 'ares'. o.rot = turn
+ * (degrees, grows with road speed); o.shift = 0..1 toward the shift point (lights the rim's top
+ * arc); o.over = at the shift point (the rim flashes).
+ */
+function disc(cv, t, cx, cy, R, o) {
+    const id = o.id || 'sam', b = boot(o.delay || 100, 900), rot = o.rot || 0;
+    if (b <= 0) return;
+    R *= 0.86 + 0.14 * b;
+    cv.alpha(b);
+    discBody(cv, t, cx, cy, R);
+    discRings(cv, t, id, cx, cy, R, 'a', rot);
+    discRings(cv, t, id, cx, cy, R, 'b', rot);
+    discCore(cv, t, cx, cy, R);
+    discShift(cv, t, cx, cy, R, o.shift, o.over);
     cv.alpha(1);
 }
 
@@ -481,5 +520,5 @@ function button(cv, t, x, y, w, h, label, run, opts) {
 
 module.exports = {
     F, A, clamp, ease, reboot, boot, pol, radial, mono, lbl, head, num, brackets, lightLine, segArc, ticks, spinner, tri,
-    pointer, segBar, trace, backdrop, panel, reactor, shiftBar, button, neon, neonArc, node, leader, chevrons, hatch, cutBox, fillCut, disc, ngon,
+    pointer, segBar, trace, backdrop, panel, reactor, shiftBar, button, neon, neonArc, node, leader, chevrons, hatch, cutBox, fillCut, disc, ngon, discBody, discRings, discCore, discShift, drawn,
 };

@@ -142,6 +142,22 @@
       ]
     },
     {
+      "key": "cluster",
+      "label": "Instrument cluster",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "The Grid in the middle (replaces the map view)"
+        ],
+        [
+          "off",
+          "Off · BMW's map view"
+        ]
+      ]
+    },
+    {
       "key": "tempUnit",
       "label": "Temperature",
       "type": "choice",

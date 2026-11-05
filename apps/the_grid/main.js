@@ -28,6 +28,7 @@ const { DidReader } = require('./kit/dids');
 const H = require('./hud');
 const { Controller } = require('./controller');
 const { TuneControl } = require('./tune');
+const { GridCluster } = require('./cluster');
 
 const W = 1600, HGT = 520;
 const PAGES = ['drive', 'vitals', 'track', 'engine'];
@@ -1019,6 +1020,35 @@ mgu.run({
             });
         }
 
+        /* ---------- the cluster: The Grid in the map area between BMW's gauges (cluster.js) ---------- */
+        const CL_LIMITS = { oil: [70, 130], coolant: [70, 112], trans: [40, 115], iat: [-60, 55] };
+        const clState = (k, c) => (!G.isNum(c) ? null : c < CL_LIMITS[k][0] ? 'COLD' : c > CL_LIMITS[k][1] ? 'HOT' : 'OK');
+        const cluster = new GridCluster(ctx, {
+            theme: () => ctx.theme(),
+            values() {
+                const d = data(), red = engine.redline(), psi = psiOn(), lo = psi ? -15 : -1, top = boostTop();
+                const at = (x) => (G.isNum(x) ? G.clamp((x - lo) / (top - lo), 0, 1) : null);
+                const temp = (k, c, lo2, span) => ({ text: f0(T(c)), frac: G.isNum(c) ? (c - lo2) / span : null, state: clState(k, c) });
+                const iat = fr('iat', d.iat), eth = fr('ethanol', d.ethanol), bv = P(d.boost);
+                const pk = usingDemo() ? demoPeak.boost : peak.boost;
+                if (clusterShown) engineSeen = Date.now();          // keeps boost (and the slow values) coming from the DME
+                return {
+                    ethanol: { text: f0(eth), frac: G.isNum(eth) ? eth / 100 : null },
+                    iat: temp('iat', iat, 0, 80),
+                    oil: temp('oil', d.oil, 40, 110),
+                    coolant: temp('coolant', d.coolant, 40, 90),
+                    trans: temp('trans', transT(d), 20, 110),
+                    boost: { text: G.isNum(bv) ? G.fmt(bv, psi ? 1 : 2) : null, zero: at(0), pos: at(bv), peak: at(P(pk)) },
+                    shift: G.isNum(d.rpm) ? (d.rpm - (red - 2600)) / 2400 : 0, over: G.isNum(d.rpm) && d.rpm >= red - 200,
+                    kmh: d.speed, units: { temp: tU(), press: psi ? 'psi' : 'bar' },
+                };
+            },
+        });
+        let clusterShown = false;
+        cluster.onShown = (on) => { clusterShown = on; };
+        const clusterOn = () => settings.get('cluster') !== 'off';
+        if (clusterOn()) cluster.start();
+
         /* ---------- frame + loop ---------- */
         function header(cv, t) {
             G.frame(cv, t, ['Drive', 'Vitals', 'Track', 'Engine'], page, [usingDemo() && { text: 'DEMO' }]);
@@ -1040,6 +1070,8 @@ mgu.run({
         settings.onChange((k) => {
             if (k === 'maxPower' || k === 'powerSource') { delete peak.power; delete demoPeak.power; }
             if (k === 'boostSource') { delete peak.boost; updBoost(); }
+            if (k === 'cluster') { if (clusterOn()) cluster.start(); else { cluster.stop(); clusterShown = false; } }
+            if (['theme', 'tempUnit', 'pressUnit', 'boostMax'].indexOf(k) >= 0) cluster.refresh();
             if (k === 'arm') exhaust.refresh().catch((e) => log.error('exhaust', e));
             if (k === 'tuner') tune.refresh().catch((e) => log.error('tune', e));
             if (k === 'page') { page = Math.max(0, PAGES.indexOf(settings.get('page'))); H.reboot(); }

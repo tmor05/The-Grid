@@ -12,6 +12,12 @@ power and torque), with ethanol content added.
   (twelve live values with five-minute traces), Track (0-60 and 1/4 mile from the car's speed
   signal, live power/torque), Engine (exhaust flap, engine map with your own map names in
   `config.mapNames`, Max Cooling).
+- **Instrument cluster:** The Grid in the map area between BMW's speedometer and tach
+  ([`cluster.js`](apps/the_grid/cluster.js), through cluster-render, which must be installed): the
+  identity disc with boost and the shift light, ethanol, intake, oil, coolant and trans. The
+  cluster's own GPU draws it (shaders, pictures sent once, live values as uniforms). It takes
+  the map view's spot and leaves the guidance box alone; Settings > Instrument cluster > Off
+  gives the map view back. `node kit/tools/grid_cluster_preview.js out.png` shows what it sends.
 - **Engine page safety:** it runs Engine Config's car-tested command code unchanged: nothing is
   sent until a button is pressed, the flap is simulated until "Exhaust Flap" is armed, and the
   tune sends nothing while "Tuning software" is Off (MHD: map 2F 01, Max Cooling 2F 03).
