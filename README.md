@@ -1,3 +1,24 @@
+# The Grid
+
+**The Grid** is a performance app for the BMW X4M Competition (iDrive 7), styled after *Tron: Legacy*.
+It lives in [`apps/the_grid`](apps/the_grid) and is built on this repository's kit and on M Vitals'
+data layer (boost from the sport display or the engine unit, temperatures, fuel pressures, timing,
+power and torque), with ethanol content added.
+
+- **Pages:** Drive (tach, speed, boost, power/torque, oil/coolant/trans/intake/ethanol), Vitals
+  (twelve live values), Track (0-60 and 1/4 mile from the car's speed signal, live power/torque).
+- **Identities:** Sam (cyan), Flynn (white), Rinzler (orange), Ares (red), in Settings.
+- **Install:** add this repository as a source in the MGU Store (Settings > Add source >
+  `tmor05/The-Grid`); the Store builds The Grid on the head unit against its own SDK. This
+  repository's `mgu-repo.json` offers only The Grid; the renderer and controller gate it needs come
+  from the upstream `cauliflowermossgrape/idrive7-apps` source.
+
+The Grid is a fork of [cauliflowermossgrape/idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps)
+(MIT); everything below is the upstream README. No BMW SDK or firmware-derived files are in this
+repository.
+
+---
+
 **English** | [中文 (Chinese translation)](README.zh-CN.md) | [Русский (Russian translation)](README.ru.md) | [한국어 수정본](README.ko.md)
 
 <h1 align="center">MGU Custom Apps</h1>
