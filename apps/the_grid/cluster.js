@@ -39,10 +39,17 @@ const HIGHP = '#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\
 
 /* The floor: dot matrix and light rays above the horizon, the light-grid floor below, its cross
  * lines running toward the viewer (phase = u_time x rate + offset, rate from road speed),
- * edges fading into the cluster's black. Same geometry as hud.backdrop. */
+ * edges fading into the cluster's black. Same geometry as hud.backdrop: the far end of the floor
+ * leans into a corner (u_bend, px), light streaks run down the lanes with speed (u_streak: density,
+ * rate, offset), the horizon flares on a shift (u_pulse, played by the renderer) and with boost
+ * (u_hot). */
 const FLOOR_FS = `#version 100
 ${HIGHP}uniform float u_time;
 uniform vec2 u_floor;
+uniform vec3 u_streak;
+uniform float u_bend;
+uniform float u_pulse;
+uniform float u_hot;
 uniform vec3 u_c;
 uniform vec3 u_c2;
 uniform vec3 u_bg;
@@ -52,20 +59,22 @@ const float HY = ${HY}.0;
 void main() {
     vec2 p = v_uv * SIZE;
     vec3 col = u_bg;
-    float vp = SIZE.x * 0.5;
+    float vp = SIZE.x * 0.5 - u_bend;
+    float hot = clamp(u_hot + u_pulse, 0.0, 1.4);
     if (p.y < HY) {
         vec2 g = mod(p - vec2(16.0, 12.0), 32.0);
         col += u_c * 0.10 * step(g.x, 2.0) * step(g.y, 2.0) * step(p.y, HY - 12.0);
         float th = atan(p.x - vp, (HY - p.y) / 0.42 + 0.001);
         float r = abs(fract(th / 0.21 + 0.5) - 0.5) * 0.21;
-        col += u_c * 0.03 * (1.0 - smoothstep(0.0, 0.02 + 0.03 * (HY - p.y) / HY, r));
-        col += u_c * 0.13 * smoothstep(HY - 90.0, HY, p.y);
+        col += u_c * 0.03 * (1.0 + hot * 0.8) * (1.0 - smoothstep(0.0, 0.02 + 0.03 * (HY - p.y) / HY, r));
+        col += u_c * (0.13 + 0.12 * hot) * smoothstep(HY - 90.0, HY, p.y);
     } else {
         float D = SIZE.y + 40.0 - HY;
         float yy = max(p.y - HY, 0.5);
         float s = yy / D;
-        col += u_c * mix(0.10, 0.03, smoothstep(0.0, 0.5, s));
-        float u = (p.x - vp) / (128.0 * (0.18 + 0.82 * s));
+        col += u_c * mix(0.10 + 0.08 * hot, 0.03, smoothstep(0.0, 0.5, s));
+        float xc = vp + (SIZE.x * 0.5 - vp) * s;
+        float u = (p.x - xc) / (128.0 * (0.18 + 0.82 * s));
         float du = 1.0 / (128.0 * (0.18 + 0.82 * s));
         float dv = abs(fract(u + 0.5) - 0.5) / du;
         col += u_c * 0.18 * (1.0 - smoothstep(0.4, 1.4, dv));
@@ -75,11 +84,22 @@ void main() {
         float dvdy = D / (0.55 * yy * yy);
         float dh = abs(fract(v + 0.5) - 0.5) / dvdy;
         col += u_c * clamp(0.36 / z, 0.02, 0.3) * (1.0 - smoothstep(0.5, 1.5, dh));
+        // streaks: a lit lane carries a light that runs toward the viewer, growing as it comes
+        if (u_streak.x > 0.0) {
+            float li = floor(u + 0.5);
+            float hs = fract(sin(li * 91.7 + 3.1) * 43758.5453);
+            float ph = fract(fract(u_time * u_streak.y + u_streak.z) * (1.0 + hs * 0.8) + hs * 7.0);
+            float f0 = pow(ph, 2.2), f1 = min(1.0, f0 + 0.05 + 0.2 * ph);
+            float inSeg = step(f0, s) * step(s, f1);
+            float lit = step(hs, u_streak.x) * step(0.5, abs(li));
+            float a = clamp(ph * 1.6, 0.0, 1.0) * (0.25 + 0.55 * u_streak.x);
+            col += mix(u_c, u_c2, step(0.75, hs)) * a * lit * inSeg * (1.0 - smoothstep(0.5, 1.0 + 3.0 * ph, dv));
+        }
     }
     float h = abs(p.y - HY);
-    float mid = 1.0 - abs(p.x - vp) / vp;
-    col += u_c * 0.05 * (1.0 - smoothstep(0.0, 6.0, h));
-    col += mix(u_c * 0.3, u_c2, mid) * (1.0 - smoothstep(0.5, 1.5, h)) * (0.4 + 0.6 * mid);
+    float mid = 1.0 - abs(p.x - SIZE.x * 0.5) / (SIZE.x * 0.5);
+    col += u_c * (0.05 + 0.12 * u_pulse) * (1.0 - smoothstep(0.0, 6.0 + 10.0 * u_pulse, h));
+    col += mix(u_c * 0.3, u_c2, mid) * (1.0 - smoothstep(0.5, 1.5, h)) * (0.4 + 0.6 * mid) * (1.0 + 0.4 * hot);
     float vig = smoothstep(0.0, 70.0, p.x) * smoothstep(0.0, 70.0, SIZE.x - p.x) * smoothstep(0.0, 36.0, p.y) * smoothstep(0.0, 30.0, SIZE.y - p.y);
     gl_FragColor = vec4(mix(vec3(0.0), col, vig), 1.0);
 }`;
@@ -195,13 +215,15 @@ void main() {
 /* ---------- the glyph atlas: Orbitron digits from The Grid's own font ---------- */
 const CHARS = '0123456789.-';
 const PAD = 6, TRACK = 6;
-function buildAtlas() {
-    const f = fonts.get('gridnum', 90, '0123456789');
-    const gl = CHARS.split('').map((ch) => f.glyphs[ch.charCodeAt(0)]);
+/** The atlas: the given characters (default digits, point, minus) of Orbitron at size (default 90). */
+function buildAtlas(size, chars) {
+    const CH = chars || CHARS;
+    const f = fonts.get('gridnum', size || 90, '0123456789');
+    const gl = CH.split('').map((ch) => f.glyphs[ch.charCodeAt(0)] || f.glyphs[45]);
     const cw = Math.ceil(Math.max.apply(null, gl.map((g) => g[2]))) + 2 * PAD;
     const top = Math.max.apply(null, gl.map((g) => -g[5]));
     const ch = top + 2 * PAD + 2, base = PAD + top;
-    const aw = cw * CHARS.length, px = Buffer.alloc(aw * ch);
+    const aw = cw * CH.length, px = Buffer.alloc(aw * ch);
     gl.forEach((g, i) => {
         for (let y = 0; y < g[3]; y++) {
             for (let x = 0; x < g[2]; x++) {
@@ -211,7 +233,7 @@ function buildAtlas() {
             }
         }
     });
-    return { px, aw, ah: ch, cw, base, adv: gl.map((g) => g[2]), size: 90 };
+    return { px, aw, ah: ch, cw, base, adv: gl.map((g) => g[2]), size: f.size, chars: CH };
 }
 
 /* ---------- pictures: drawn with hud.js into a recording, played into pixels ---------- */
@@ -251,6 +273,12 @@ class GridCluster {
         this.atlas = null;
         this.picKey = '';
         this.floor = { rate: 0.04, off: 0, t0: Date.now() };
+        this.streak = { rate: 0, off: 0, n: -1 };
+        this.bend = 0; this.bendT = Date.now(); this.hot = 0;
+        // the disc's rings turn with road speed: one animate message per change of pace, played by the renderer
+        this.rings = { a: { deg: 0, rate: 9, t0: Date.now() }, b: { deg: 0, rate: -6, t0: Date.now() } };
+        this.onPulse = () => this._pulse();
+        H.onPulse(this.onPulse);
     }
 
     start() {
@@ -259,6 +287,7 @@ class GridCluster {
         if (!this.atlas) this.atlas = buildAtlas();
         const A = this.atlas;
         const L = this.L = {};
+        this.rings.a.anim = this.rings.b.anim = this.pulseAnim = 0;
         const base = { target: 'map', contend: 1, guide_hold: 0 };
         L.font = cr.asset({ target: 'map', format: 'r8', w: A.aw, h: A.ah, sampling: 'bilinear' });
         L.floor = cr.effect(Object.assign({ klass: 'ambient', x: 0, y: 0, w: TW, h: TH, fs: FLOOR_FS, time_fps: 30 }, base));
@@ -276,14 +305,15 @@ class GridCluster {
         const bw = this._textWidth(BOOST_TEXT.cells) * BOOST_TEXT.size / A.size;
         L.texts.boost = this._textLayer(cr, textFs, DISC.cx - bw / 2, DISC.cy - 26, BOOST_TEXT.size, BOOST_TEXT.cells, base);
         L.texts.boost.align = 'center';
-        cr.animate(L.ringA, { anim: 1, property: 'rotate', keys: '0:0 40000:360', loop: 1 });
-        cr.animate(L.ringB, { anim: 1, property: 'rotate', keys: '0:0 60000:-360', loop: 1 });
+        this._spin(true);
         Object.keys(L.texts).forEach((k) => cr.bind(L.texts[k].ref, 'u_font', L.font));
         cr.pixels(L.font, null, A.px);
         cr.on('ready', () => {
             this.sent = {};
             this.floor.t0 = Date.now();
             this.floor.off = 0;
+            this.streak.n = -1;
+            this._spin(true);
             this._pictures(true);
             this._update(true);
             this.log.info('cluster: connected (' + cr.backend + ': ' + cr.targets + ')');
@@ -302,6 +332,31 @@ class GridCluster {
         this.shown = false;
         this.cr.close(); this.cr = null;
         this.log.info('cluster: stopped');
+    }
+
+    /**
+     * The rings' pace from road speed (deg/s): re-sent when it changes enough, starting where the
+     * ring is now so it never jumps. A loop of one full turn at that pace (seamless: +360 = 0).
+     */
+    _spin(force) {
+        if (!this.cr) return;
+        const v = this.src.values ? this.src.values() : {}, kmh = G.isNum(v.kmh) ? Math.max(0, v.kmh) : 0, now = Date.now();
+        const want = { a: 9 + kmh * 1.1, b: -(6 + kmh * 0.75) };
+        ['a', 'b'].forEach((k) => {
+            const r = this.rings[k], deg = (r.deg + r.rate * (now - r.t0) / 1000) % 360;
+            if (!force && Math.abs(want[k] - r.rate) < Math.max(2, Math.abs(r.rate) * 0.12)) return;
+            Object.assign(r, { deg, rate: want[k], t0: now });
+            const ms = Math.round(360 / Math.abs(r.rate) * 1000), end = deg + (r.rate > 0 ? 360 : -360), ref = k === 'a' ? this.L.ringA : this.L.ringB;
+            // (the client numbers every animation anew and a layer plays at most 16: the old one goes first)
+            if (r.anim) this.cr.stop(ref, r.anim);
+            r.anim = this.cr.animate(ref, { property: 'rotate', keys: '0:' + deg.toFixed(2) + ' ' + ms + ':' + end.toFixed(2), loop: 1 });
+        });
+    }
+    /** A shift pulse: the renderer plays the horizon's flare by itself (one message). */
+    _pulse() {
+        if (!this.cr || !this.cr.ready || !this.L) return;
+        if (this.pulseAnim) this.cr.stop(this.L.floor, this.pulseAnim);
+        this.pulseAnim = this.cr.animate(this.L.floor, { property: 'uniform', name: 'u_pulse', keys: '0:1 140:0.65 450:0', loop: 0 });
     }
 
     /** Units or the identity changed: the pictures go again. */
@@ -383,6 +438,25 @@ class GridCluster {
             f.rate = rate;
             this._uni(L.floor, 'u_floor', [f.rate, f.off]);
         }
+        // streaks: density and pace from the speed (the phase carried over a change of pace, as the floor's)
+        const kmh = G.isNum(v.kmh) ? Math.max(0, v.kmh) : 0, sk = this.streak;
+        const n = Math.round(G.clamp((kmh - 30) / 170, 0, 1) * 16) / 16, srate = kmh * 0.012;
+        if (force || n !== sk.n || Math.abs(srate - sk.rate) > 0.08 * Math.max(sk.rate, 0.1)) {
+            const tc = (Date.now() - f.t0) / 1000;
+            sk.off = ((tc * sk.rate + sk.off) - tc * srate) % 1;
+            sk.rate = srate; sk.n = n;
+            this._uni(L.floor, 'u_streak', [n, sk.rate, sk.off]);
+        }
+        // the far end leans into the corner (smoothed here: the cluster runs whatever page the screen shows)
+        const now = Date.now(), dt = Math.min(0.3, (now - this.bendT) / 1000);
+        this.bendT = now;
+        const calm = v.calm, bt = calm || !G.isNum(v.gLat) ? 0 : G.clamp(v.gLat, -1.2, 1.2) * G.clamp(kmh / 40, 0, 1);
+        this.bend += (bt - this.bend) * Math.min(1, dt * 4);
+        this._uni(L.floor, 'u_bend', [Math.round(this.bend * 102)]);
+        this.hot += ((G.isNum(v.boostBar) ? G.clamp(v.boostBar / 2, 0, 1) : 0) * 0.8 - this.hot) * Math.min(1, dt * 6);
+        this._uni(L.floor, 'u_hot', [Math.round(this.hot * 20) / 20]);
+        if (force) this._uni(L.floor, 'u_pulse', [0]);
+        this._spin(false);
         this._uni(L.dial, 'u_shift', [Math.round(G.clamp(v.shift || 0, 0, 1) * 34) / 34]);
         this._uni(L.dial, 'u_over', [v.over ? 1 : 0]);
         const b = v.boost;
@@ -404,4 +478,4 @@ class GridCluster {
     }
 }
 
-module.exports = { GridCluster, READOUTS, DISC, TW, TH, FLOOR_FS, DIAL_FS, BAR_FS, TEXT_FS, buildAtlas };
+module.exports = { GridCluster, READOUTS, DISC, TW, TH, FLOOR_FS, DIAL_FS, BAR_FS, TEXT_FS, HIGHP, PAD, TRACK, buildAtlas, picture, col3 };

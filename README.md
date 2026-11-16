@@ -6,18 +6,35 @@ data layer (boost from the sport display or the engine unit, temperatures, fuel 
 power and torque), with ethanol content added.
 
 - **Look:** its own HUD layer ([`hud.js`](apps/the_grid/hud.js)): a light-grid floor that runs with
-  road speed, reactor dials, an identity disc behind the speed (its rim is the shift light),
-  cut-corner neon panels, leader lines.
+  road speed (light streaks down its lanes above ~40 km/h, the far end leaning into corners with
+  lateral g, the horizon flaring with boost and pulsing on every upshift under load and at the
+  shift point; Settings > Grid motion > Calm keeps the speed alone), reactor dials, an identity
+  disc behind the speed (its rim is the shift light), cut-corner neon panels, leader lines.
 - **Pages:** Drive (tach, speed, boost, ethanol, power/torque, oil/coolant/trans/intake), Vitals
-  (twelve live values with five-minute traces), Track (0-60 and 1/4 mile from the car's speed
-  signal, live power/torque), Engine (exhaust flap, engine map with your own map names in
-  `config.mapNames`, Max Cooling).
+  (twelve live values with five-minute traces; boost shows its target, misfires each cylinder),
+  Track (0-60 and 1/4 mile from the car's speed signal, live power/torque), Engine (exhaust flap,
+  engine map with your own map names in `config.mapNames`, Max Cooling), Chassis (the four tyres'
+  pressures against the car's targets and their temperatures, M xDrive's front / rear split).
+- **Warm-up redline:** while the engine oil is cold the shift lights and the dial's red zone come
+  early (4500 rpm up to 40 deg C of oil, the full redline from 80 deg C), as an M car's tach does.
 - **Instrument cluster:** The Grid in the map area between BMW's speedometer and tach
   ([`cluster.js`](apps/the_grid/cluster.js), through cluster-render, which must be installed): the
   identity disc with boost and the shift light, ethanol, intake, oil, coolant and trans. The
   cluster's own GPU draws it (shaders, pictures sent once, live values as uniforms). It takes
   the map view's spot and leaves the guidance box alone; Settings > Instrument cluster > Off
   gives the map view back. `node kit/tools/grid_cluster_preview.js out.png` shows what it sends.
+  The floor there runs, leans and pulses as on the centre screen, and the disc's rings turn with
+  road speed (one animation message per change of pace; the renderer turns them).
+- **Head-up display:** ([`headup.js`](apps/the_grid/headup.js), cluster-render's `hud` target, inside
+  the 453 x 200 box the HUD's own map uses): shift lights across the top, the gear with its
+  programme (D / S / M), boost and oil either side, and a strip of the grid along the bottom that
+  runs with your speed (Settings > HUD grid strip). It gives way to the HMI's HUD lists and never
+  covers BMW's own HUD content. Not yet seen on this car: check it parked first.
+- **Emulator:** `node kit/tools/grid_emu/build.js` makes one web page that runs The Grid's own code
+  (the staged build the Store compiles) on the car's GPU draw engine (WebAssembly), with the cluster
+  and the HUD drawn from what the app sends cluster-render and a simulated X4 M Competition and DME
+  behind it: drive it, tap through every page and setting, and see every command the Engine page
+  would send. See [`kit/tools/grid_emu/README.md`](kit/tools/grid_emu/README.md).
 - **Engine page safety:** it runs Engine Config's car-tested command code unchanged: nothing is
   sent until a button is pressed, the flap is simulated until "Exhaust Flap" is armed, and the
   tune sends nothing while "Tuning software" is Off (MHD: map 2F 01, Max Cooling 2F 03).

@@ -227,12 +227,26 @@ function hatch(cv, x, y, w, h, c, gap) {
 }
 
 /* ---------- the backdrop: dot matrix, light rays, horizon, light-grid floor ---------- */
-let floorPhase = 0, floorT = now();
+let floorPhase = 0, floorT = now(), streakPhase = 0, bendS = 0, pulseAt = 0, boostS = 0;
+
+/** A light pulse runs out of the horizon (a shift, a new peak): it fades over PULSE_MS. */
+const PULSE_MS = 450;
+const pulseFns = [];
+function pulse() { pulseAt = now(); pulseFns.forEach((fn) => { try { fn(); } catch (e) { /* a listener's own */ } }); }
+/** fn() on every pulse (the cluster and the HUD play their own). */
+function onPulse(fn) { if (pulseFns.indexOf(fn) < 0) pulseFns.push(fn); }
+/** 0..1 of the last pulse (1 at the moment it fired). */
+function pulseLevel() { const p = 1 - (now() - pulseAt) / PULSE_MS; return p > 0 ? p * p : 0; }
+/** The floor's motion this frame, shared with the cluster and the HUD: { phase, bend, streaks }. */
+function floorState() { return { phase: floorPhase, bend: bendS, pulse: pulseLevel() }; }
 
 /**
  * The world behind every page. hy = horizon line; the floor's cross lines run toward the
  * viewer at the car's speed (km/h, null = parked). Drawn to the page's bottom edge and a
  * little below it (the screen's bar sits over that).
+ * opts.gLat: lateral g (the floor leans into the corner); opts.boost: bar (the horizon burns
+ * brighter on boost); opts.noFloor: dots only.
+ * Above ~40 km/h light streaks run down the floor's lanes, more and faster with speed.
  */
 function backdrop(cv, t, bottom, hy, speedKmh, opts) {
     const o = opts || {};
@@ -244,37 +258,56 @@ function backdrop(cv, t, bottom, hy, speedKmh, opts) {
     for (let y = 68; y < hy - 12; y += 32) for (let x = 16; x < W; x += 32) cv.fillRect(x, y, 2, 2, dot);
     cv.gradientRect(0, 0, W, 120, [[0, A('#000000', 0.55)], [1, A('#000000', 0)]]);
     if (o.noFloor) { cv.noclip(); return; }
-    const vp = o.vp || W / 2, grow = boot(0, 700);
+    const tn = now(), dt = Math.min(0.2, (tn - floorT) / 1000);
+    floorT = tn;
+    const kmh = G.isNum(speedKmh) ? Math.max(0, speedKmh) : 0;
+    // the floor leans into a corner (lateral g, smoothed) and the horizon burns brighter on boost
+    const bendTo = G.isNum(o.gLat) ? clamp(o.gLat, -1.2, 1.2) * clamp(kmh / 40, 0, 1) : 0;
+    bendS += (bendTo - bendS) * Math.min(1, dt * 4);
+    boostS += ((G.isNum(o.boost) ? clamp(o.boost / 2, 0, 1) : 0) - boostS) * Math.min(1, dt * 6);
+    const pl = pulseLevel(), hot = clamp(boostS * 0.8 + pl, 0, 1.4);
+    const vp = (o.vp || W / 2) - bendS * 150, grow = boot(0, 700);
     // light rays fanning up out of the horizon
     for (let i = -7; i <= 7; i++) {
         const a = i * 0.21, len = 900, w0 = 2, w1 = 26 + Math.abs(i) * 4;
         const x1 = vp + Math.sin(a) * len, y1 = hy - Math.cos(a) * len * 0.42;
         const nx = Math.cos(a), ny = Math.sin(a) * 0.42;
-        cv.quad([[vp - nx * w0, hy], [vp + nx * w0, hy], [x1 + nx * w1, y1 + ny * w1], [x1 - nx * w1, y1 - ny * w1]], A(t.accent, (i === 0 ? 0.05 : 0.025) * grow));
+        cv.quad([[vp - nx * w0, hy], [vp + nx * w0, hy], [x1 + nx * w1, y1 + ny * w1], [x1 - nx * w1, y1 - ny * w1]], A(t.accent, (i === 0 ? 0.05 : 0.025) * grow * (1 + hot * 0.8)));
     }
     // horizon glow
-    cv.gradientRect(0, hy - 90, W, 90, [[0, A(t.accent, 0)], [1, A(t.accent, 0.13)]]);
-    cv.gradientRect(0, hy, W, b - hy, [[0, A(t.accent, 0.10)], [0.4, A(t.accent, 0.02)], [1, A(t.accent, 0.05)]]);
-    // floor: lines converging on a point above the horizon
-    const rise = 0.18;
+    cv.gradientRect(0, hy - 90, W, 90, [[0, A(t.accent, 0)], [1, A(t.accent, 0.13 + 0.12 * hot)]]);
+    cv.gradientRect(0, hy, W, b - hy, [[0, A(t.accent, 0.10 + 0.08 * hot)], [0.4, A(t.accent, 0.02)], [1, A(t.accent, 0.05)]]);
+    // floor: lines converging on a point above the horizon (it moves with the bend; the near ends stay)
+    const rise = 0.18, lane = (i, f) => { const xh = vp + i * 128 * rise, xb = W / 2 + i * 128; return xh + (xb - xh) * f; };
     for (let i = -14; i <= 14; i++) {
-        const xb = vp + i * 128, xh = vp + i * 128 * rise;
-        const yb = hy + (b - hy) * grow, xe = xh + (xb - xh) * grow;
-        cv.line(xh, hy, xe, yb, i === 0 ? 1.6 : 1.1, A(t.accent, i === 0 ? 0.26 : 0.16));
+        const yb = hy + (b - hy) * grow;
+        cv.line(lane(i, 0), hy, lane(i, grow), yb, i === 0 ? 1.6 : 1.1, A(t.accent, i === 0 ? 0.26 : 0.16));
     }
     // cross lines flowing toward the viewer with the car's speed
-    const tn = now(), dt = Math.min(0.2, (tn - floorT) / 1000);
-    floorT = tn;
-    floorPhase = (floorPhase + (G.isNum(speedKmh) ? speedKmh : 0) * dt * 0.045 + dt * 0.04) % 1;
+    floorPhase = (floorPhase + kmh * dt * 0.045 + dt * 0.04) % 1;
     const D = b - hy;
     for (let k = 0; k < 16; k++) {
         const z = 0.85 + (k + 1 - floorPhase) * 0.55, y = hy + D / z;
         if (y > b || y < hy + 2) continue;
         cv.fillRect(0, y - 0.7, W, 1.4, A(t.accent, clamp(0.36 / z, 0.02, 0.3) * grow));
     }
-    // the horizon itself: a light line, hottest in the middle
-    cv.fillRect(0, hy - 6, W, 12, A(t.accent, 0.05));
-    cv.rampRect(0, hy - 3, W, 6, 0, [A(t.accent, 0.05), A(t.accent, 0.35), A(t.accent, 0.05)]);
+    // light streaks down the lanes: none parked, a handful at town speed, a storm on the motorway
+    const n = Math.round(clamp((kmh - 30) / 170, 0, 1) * 16);
+    if (n > 0 && grow >= 1) {
+        streakPhase = (streakPhase + kmh * dt * 0.012) % 1;
+        for (let s = 0; s < n; s++) {
+            const h = Math.sin(s * 91.7) * 43758.5453, fr = h - Math.floor(h);
+            const i = Math.round((fr - 0.5) * 22) || (s % 2 ? 3 : -3);
+            const ph = (streakPhase * (1 + fr * 0.8) + fr * 7) % 1;
+            const f0 = Math.pow(ph, 2.2), f1 = Math.min(1, f0 + 0.05 + 0.2 * ph);
+            const y0 = hy + D * f0, y1 = hy + D * f1;
+            const a = clamp(ph * 1.6, 0, 1) * (0.25 + 0.55 * clamp((kmh - 30) / 120, 0, 1));
+            cv.line(lane(i, f0), y0, lane(i, f1), y1, 1 + 3 * ph, A(s % 4 === 0 ? (t.accent2 || t.accent) : t.accent, a));
+        }
+    }
+    // the horizon itself: a light line, hottest in the middle (and on a shift pulse)
+    cv.fillRect(0, hy - 6 - 10 * pl, W, 12 + 20 * pl, A(t.accent, 0.05 + 0.12 * pl));
+    cv.rampRect(0, hy - 3, W, 6, 0, [A(t.accent, 0.05), A(t.accent, clamp(0.35 + 0.3 * hot, 0, 1)), A(t.accent, 0.05)]);
     cv.rampRect(0, hy - 1, W, 2, 0, [A(t.accent, 0.3), A(t.accent2 || t.accent, 1), A(t.accent, 0.3)]);
     cv.noclip();
 }
@@ -520,5 +553,5 @@ function button(cv, t, x, y, w, h, label, run, opts) {
 
 module.exports = {
     F, A, clamp, ease, reboot, boot, pol, radial, mono, lbl, head, num, brackets, lightLine, segArc, ticks, spinner, tri,
-    pointer, segBar, trace, backdrop, panel, reactor, shiftBar, button, neon, neonArc, node, leader, chevrons, hatch, cutBox, fillCut, disc, ngon, discBody, discRings, discCore, discShift, drawn,
+    pointer, segBar, trace, backdrop, pulse, onPulse, pulseLevel, floorState, panel, reactor, shiftBar, button, neon, neonArc, node, leader, chevrons, hatch, cutBox, fillCut, disc, ngon, discBody, discRings, discCore, discShift, drawn,
 };

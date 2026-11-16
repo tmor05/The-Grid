@@ -84,7 +84,8 @@ const server = net.createServer((c) => {
 function runApp() {
     return new Promise((resolve) => {
         const pv = path.join(os.tmpdir(), 'grid-cr-pv-' + process.pid);
-        const ch = spawn(process.execPath, [path.join(ROOT, 'kit', 'tools', 'preview.js'), path.join(ROOT, 'dist', 'the_grid'), pv, 'wait=' + seconds].concat(sets),
+        // (one client here: The Grid's HUD is a second cluster-render client with refs of its own, so it stays off)
+        const ch = spawn(process.execPath, [path.join(ROOT, 'kit', 'tools', 'preview.js'), path.join(ROOT, 'dist', 'the_grid'), pv, 'wait=' + seconds].concat(sets, ['--set', 'hud=off']),
             { env: Object.assign({}, process.env, { CLUSTER_RENDER_SOCK: sock }), stdio: ['ignore', 'pipe', 'pipe'] });
         let log = '';
         ch.stdout.on('data', (d) => { log += d; });

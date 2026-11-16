@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Grid · Emulator</title>
+<style>/*CSS*/</style>
+</head>
+<body data-view="cockpit">
+<header id="top">
+  <div class="brand"><span class="mark"></span><div><b>THE GRID</b><small>EMULATOR · <span id="ver"></span></small></div></div>
+  <nav id="views" aria-label="Displays">
+    <button data-view="cockpit" class="on">Cockpit</button><button data-view="cid">Center screen</button><button data-view="cluster">Cluster</button><button data-view="hud">HUD</button>
+  </nav>
+  <div id="ids" aria-label="Identity">
+    <button data-id="sam" style="--c:#67e8ff">Sam</button><button data-id="flynn" style="--c:#eef6ff">Flynn</button><button data-id="rinzler" style="--c:#ff9d1c">Rinzler</button><button data-id="ares" style="--c:#ff3348">Ares</button>
+  </div>
+</header>
+
+<div id="wrap">
+<main id="displays">
+  <section class="disp" id="d-hud" aria-label="Head-up display">
+    <div class="tag"><b>HUD</b><span>windshield · cluster-render <code>hud</code> target 800×480 · black is see-through</span><span class="st" id="st-hud"></span></div>
+    <canvas id="hudview" width="1600" height="560"></canvas>
+  </section>
+  <section class="disp" id="d-cluster" aria-label="Instrument cluster">
+    <div class="tag"><b>CLUSTER</b><span>BMW's gauges (stock, simplified) · The Grid in the middle: <code>map</code> target 1088×480</span><span class="st" id="st-cl"></span></div>
+    <canvas id="clview" width="1920" height="720"></canvas>
+  </section>
+  <section class="disp" id="d-cid" aria-label="Center display">
+    <div class="tag"><b>CENTER SCREEN</b><span>1920×720 · the app's real code on the car's renderer · mouse / finger = touch</span><span class="st" id="st-cid"></span></div>
+    <div id="stage">
+      <div id="hmi" aria-hidden="true">
+        <div class="strip"><svg class="home" viewBox="0 0 24 24"><path d="M2.5 11.2 12 3.2l9.5 8v.9H19v8.4h-5.2v-6h-3.6v6H5v-8.4H2.5z" fill="currentColor"/></svg><span class="title">The Grid</span>
+          <div class="status"><span class="badge">1</span><span>DRIVER</span><svg viewBox="0 0 24 24"><path d="M4 9.5h4l5-4v13l-5-4H4z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span id="clock"></span></div></div>
+        <svg class="back" viewBox="0 0 12 24"><path d="M10 3 2.5 12l7.5 9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
+      <div id="hmibar" aria-hidden="true"></div>
+      <canvas id="soft" width="1600" height="520"></canvas>
+      <canvas id="cid" width="1920" height="720"></canvas>
+      <div id="closed" hidden><div><b>The Grid</b><span>closed (BACK / MENU) · tap to open its tile</span></div></div>
+      <div id="boot"><div class="spin"></div><span>Starting The Grid…</span></div>
+    </div>
+  </section>
+  <p class="foot">The app on these screens is <b>The Grid's own code</b> (the staged build the Store compiles on the car) on the car's GPU draw engine compiled to WebAssembly. The car, its DME and BMW's own gauges are simulated: the numbers are a model, not your car. Nothing here talks to a car.</p>
+</main>
+
+<aside id="panel" aria-label="Driving and car">
+  <section class="box drive">
+    <h2>Drive</h2>
+    <div class="row">
+      <button id="engine" class="big">START ENGINE</button>
+      <div class="sel" id="gears"><button data-g="P">P</button><button data-g="R">R</button><button data-g="N">N</button><button data-g="D">D</button><button data-g="S" title="Sport (D again)">S</button><button data-g="M" title="Manual">M</button></div>
+    </div>
+    <div class="row pedals">
+      <button class="pad" id="brake" title="Brake: ↓ or Space">BRAKE</button>
+      <div class="paddles"><button id="pdn" title="Paddle down: Q">−</button><span>paddles</span><button id="pup" title="Paddle up: E">+</button></div>
+      <button class="pad gas" id="gas" title="Throttle: ↑ (hold)">THROTTLE</button>
+    </div>
+    <label class="slider"><span>Throttle when held</span><input type="range" id="cap" min="10" max="100" value="100"><output id="capv">100%</output></label>
+    <label class="slider"><span>Steering <small>← →</small></span><input type="range" id="steer" min="-100" max="100" value="0"><output id="steerv">0</output></label>
+    <div class="readout" id="truth"></div>
+    <div class="keys"><kbd>↑</kbd> gas <kbd>↓</kbd>/<kbd>Space</kbd> brake <kbd>←</kbd><kbd>→</kbd> steer <kbd>P</kbd><kbd>R</kbd><kbd>N</kbd><kbd>D</kbd><kbd>M</kbd> gears <kbd>Q</kbd><kbd>E</kbd> paddles</div>
+  </section>
+
+  <section class="box">
+    <h2>Autopilot</h2>
+    <div class="grid3" id="scen">
+      <button data-s="launch">Launch 0-60 / ¼</button><button data-s="cruise">Cruise 45</button><button data-s="highway">Highway 75</button>
+      <button data-s="twisty">Back roads</button><button data-s="track">Track laps</button><button data-s="stop">Stop</button>
+    </div>
+    <div class="grid2"><button id="cold">Cold start</button><button id="warm">Warm start</button></div>
+    <div class="note" id="scenv">Off · you drive</div>
+  </section>
+
+  <section class="box">
+    <h2>iDrive controller</h2>
+    <div class="ccu">
+      <div id="knob" title="Turn: mouse wheel, drag, [ ]  ·  press: click, Enter"><div class="dot"></div><span>press</span></div>
+      <div class="ccu-btns"><button id="c-back" title="Backspace">BACK</button><button id="c-menu">MENU</button><button id="c-open">OPEN APP</button></div>
+    </div>
+    <div class="keys"><kbd>[</kbd><kbd>]</kbd> turn <kbd>Enter</kbd> press <kbd>Backspace</kbd> back · the app holds the controller while it shows</div>
+  </section>
+
+  <section class="box">
+    <h2>Car</h2>
+    <div class="sel wide" id="awd"><button data-a="_4WD_STANDARD" class="on">4WD</button><button data-a="_4WD_SPORT">4WD Sport</button><button data-a="_2WD">2WD</button></div>
+    <label class="slider"><span>Outside air</span><input type="range" id="amb" min="-15" max="45" value="16"><output id="ambv">16 °C</output></label>
+    <label class="slider"><span>Ethanol in the tank</span><input type="range" id="eth" min="0" max="85" value="30"><output id="ethv">E30</output></label>
+    <div class="checks">
+      <label><input type="checkbox" id="flex" checked> Flex-fuel sensor</label>
+      <label><input type="checkbox" id="link" checked> Diagnostic link (DME)</label>
+      <label><input type="checkbox" id="mhd" checked> MHD flash on the DME</label>
+      <label><input type="checkbox" id="mhdflap" checked> MHD flap control in the flash</label>
+      <label><input type="checkbox" id="hotoil"> Fault: oil runs hot</label>
+      <label>Fault: misfire on <select id="mis"><option value="0">none</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+    </div>
+    <div class="note" id="mapnote"></div>
+  </section>
+
+  <section class="box">
+    <h2>What the car would receive</h2>
+    <p class="note">Every command that would change something on a car (exhaust flap, engine map, Max Cooling), with the simulated DME's answer. Reads are left out.</p>
+    <ol id="writes"></ol>
+  </section>
+
+  <section class="box">
+    <h2>App log <button id="logclr" class="mini">clear</button></h2>
+    <pre id="log"></pre>
+  </section>
+
+  <section class="box">
+    <h2>Emulator</h2>
+    <div class="grid2"><button id="shot">Screenshot (center)</button><button id="wipe">Reset app data</button></div>
+    <p class="note" id="lic">The renderer is kit/renderd's gfx.c (GPL-3.0-or-later) compiled to WebAssembly; The Grid and the kit are MIT (github.com/tmor05/The-Grid). Fonts: Orbitron, Rajdhani, Share Tech Mono (OFL).</p>
+  </section>
+</aside>
+</div>
+<script>/*JS*/</script>
+</body>
+</html>

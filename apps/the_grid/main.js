@@ -29,9 +29,10 @@ const H = require('./hud');
 const { Controller } = require('./controller');
 const { TuneControl } = require('./tune');
 const { GridCluster } = require('./cluster');
+const { GridHud } = require('./headup');
 
 const W = 1600, HGT = 520;
-const PAGES = ['drive', 'vitals', 'track', 'engine'];
+const PAGES = ['drive', 'vitals', 'track', 'engine', 'chassis'];
 const FUEL = ['iat', 'hpfp', 'lpfp', 'timing', 'boostCtl', 'load', 'ethanol'];   // engine unit values read fast on the Fuel & ignition page
 /** Target-vs-actual pairs on the Fuel & ignition page: read together, [target, actual] keys of config.dme. */
 const PAIR = { boostCtl: ['boostTarget', 'boostActual'], load: ['loadTarget', 'loadActual'] };
@@ -616,6 +617,33 @@ mgu.run({
 
         /* ---------- The Grid's look (hud.js) ---------- */
         const A = H.A;
+        /**
+         * The redline the shift lights and the dial's red zone use: lowered while the engine oil is cold,
+         * as an M car's tach does (setting "Warm-up redline"): the cold limit (4500 rpm petrol) up to 40 deg C
+         * of oil, the full redline from 80 deg C, in between in 100 rpm steps.
+         */
+        function effRed(d) {
+            const red = engine.redline();
+            if (settings.get('warmup') === 'off' || !d || !G.isNum(d.oil) || d.oil >= 80) return red;
+            const cold = Math.min(red, engine.value('coldLimit', { diesel: 3000, petrol: 4500 }));
+            return Math.round((cold + (red - cold) * G.clamp((d.oil - 40) / 40, 0, 1)) / 100) * 100;
+        }
+        /** What moves the floor besides the speed: the corner (lateral g) and the boost. */
+        const floorOpts = (d) => ({ gLat: settings.get('gridMotion') === 'calm' ? null : d.gLat, boost: d.boost });
+        /*
+         * The shift pulse: a light runs out of the horizon on every upshift under load and the moment
+         * the shift light tops out (once per pull), on every page and in the cluster and the HUD.
+         */
+        const shiftWatch = { gear: null, over: false, rpm: 0 };
+        function watchShift(d, red) {
+            if (settings.get('gridMotion') === 'calm') return;
+            const g = G.isNum(d.gear) && d.gear > 0 ? d.gear : null, over = G.isNum(d.rpm) && d.rpm >= red - 200;
+            if (g !== null && shiftWatch.gear !== null && g === shiftWatch.gear + 1 && shiftWatch.rpm > red - 2600) H.pulse();
+            if (over && !shiftWatch.over) H.pulse();
+            shiftWatch.over = over;
+            if (g !== null) shiftWatch.gear = g;
+            if (G.isNum(d.rpm)) shiftWatch.rpm = d.rpm;
+        }
         const HY = 334;                                         // the horizon
         const VERSION = ctx.spec.version || '';
         const rampCache = {};
@@ -658,13 +686,22 @@ mgu.run({
             const vw = H.num(cv, has ? String(o.val) : '--', p.x, vy, vs, has ? (o.col || textC(t)) : dimC(t, 0.25), 'left', has && vs > 50 ? t.accent : null);
             if (o.unit) H.lbl(cv, o.unit, p.x + vw + 8, vy, Math.max(18, vs * 0.38), dimC(t, 0.8), 'left', 1);
             if (st) H.mono(cv, st[0], x + w - 14, vy, 13, st[1], 'right');
+            else if (o.sub) H.mono(cv, o.sub, x + w - 14, vy, 12, dimC(t, 0.7), 'right');
             if (o.hist && w > 300) {
                 const tw = Math.min(150, w * 0.36), tx = x + w - 14 - tw, ty = p.y + 4, th = vy - p.y - 34;
                 if (th > 14) { cv.fillRect(tx, ty + th, tw, 1, dimC(t, 0.15)); H.trace(cv, tx, ty, tw, th, o.hist, o.lo, o.hi, t.accent); }
             }
             const by = y + h - 16;
             if (!has && o.why && !usingDemo()) H.mono(cv, String(o.why).slice(0, Math.floor(w / 9)), p.x, by + 6, 12, dimC(t, 0.4));
-            else if (G.isNum(o.frac)) H.segBar(cv, p.x, by, w - 32, 7, o.segs || 18, o.frac, o.zone || (() => t.accent), dimC(t, 0.08));
+            else if (Array.isArray(o.cyl)) {
+                // one pip per cylinder, lit by its count this drive cycle
+                const n = o.cyl.length, pw = Math.min(46, (w - 32 - (n - 1) * 6) / n);
+                o.cyl.forEach((c, i) => {
+                    const px = p.x + i * (pw + 6), bad = G.isNum(c) && c > 0;
+                    cv.quad([[px + 4, by - 6], [px + pw + 4, by - 6], [px + pw, by + 8], [px, by + 8]], bad ? A(t.warn, 0.85) : dimC(t, 0.12));
+                    H.mono(cv, (i + 1) + (bad ? '·' + c : ''), px + pw / 2 + 2, by + 5, 11, bad ? t.bg : dimC(t, 0.55), 'center');
+                });
+            } else if (G.isNum(o.frac)) H.segBar(cv, p.x, by, w - 32, 7, o.segs || 18, o.frac, o.zone || (() => t.accent), dimC(t, 0.08));
             cv.alpha(1);
         }
 
@@ -690,9 +727,14 @@ mgu.run({
             const gr = gearText(d);
             const mode = gr && gr.letter === 'S' ? 'SPORT' : gr && gr.letter === 'M' ? 'MANUAL' : gr && gr.letter === 'D' && gr.num ? 'DRIVE' : '';
             if (gr) {
-                H.num(cv, gr.num || gr.letter, cx, cy + 44, 118, hot ? t.crit : textC(t), 'center', hot ? t.crit : t.accent);
+                // (Orbitron's 172 px atlas has digits only: the full layout scales text by ~1.16, so a letter
+                // alone (P, R, N, D) is drawn at a size that picks the 132 px one, which has them)
+                const gtx = gr.num || gr.letter;
+                H.num(cv, gtx, cx, cy + (/^\d+$/.test(gtx) ? 44 : 40), /^\d+$/.test(gtx) ? 118 : 108, hot ? t.crit : textC(t), 'center', hot ? t.crit : t.accent);
                 if (mode) H.mono(cv, mode, cx, cy - 58, 14, gr.letter === 'M' ? t.crit : dimC(t, 0.8), 'center');
             }
+            // warming up: the lowered limit, where the M tach would show it
+            if (red < engine.redline()) H.mono(cv, 'OIL COLD · LIMIT ' + G.fmt(red, 0), cx, cy + R * 0.86 + 44, 13, t.cold || t.accent, 'center');
             // engine speed in the gap at the bottom of the dial
             H.num(cv, G.isNum(d.rpm) ? G.fmt(d.rpm, 0) : '--', cx, cy + R * 0.86, 40, hot ? t.crit : textC(t), 'center');
             H.mono(cv, 'RPM', cx, cy + R * 0.86 + 22, 13, dimC(t, 0.6), 'center');
@@ -743,8 +785,8 @@ mgu.run({
         function drawDrive(cv, t, d) {
             engineSeen = Date.now();
             if (boostFromDme()) kickFuel();
-            const red = engine.redline(), max = engine.scaleMax(), bottom = G.pageBottom(cv), tu = tU();
-            H.backdrop(cv, t, bottom, HY, G.isNum(d.speed) ? d.speed : null);
+            const red = effRed(d), max = engine.scaleMax(), bottom = G.pageBottom(cv), tu = tU();
+            H.backdrop(cv, t, bottom, HY, G.isNum(d.speed) ? d.speed : null, floorOpts(d));
             H.mono(cv, 'GRID//OS ' + VERSION, 24, 72, 13, dimC(t, 0.55));
             H.mono(cv, 'ID // ' + t.name, 24, 90, 13, dimC(t, 0.35));
 
@@ -802,7 +844,7 @@ mgu.run({
             fuelSeen = Date.now();
             kickFuel();
             const bottom = G.pageBottom(cv);
-            H.backdrop(cv, t, bottom, HY + 60, G.isNum(d.speed) ? d.speed : null);
+            H.backdrop(cv, t, bottom, HY + 60, G.isNum(d.speed) ? d.speed : null, floorOpts(d));
             const cols = 4, rows = 3, gap = 16, x0 = 24, y0 = G.TOP + 22;
             const w = (1552 - gap * (cols - 1)) / cols, h = (bottom - y0 - gap * (rows - 1) - 6) / rows;
             const psi = psiOn(), pu = psi ? 'psi' : 'bar', tu = tU();
@@ -811,7 +853,8 @@ mgu.run({
             const hT = (k) => (hist[k] || []).map(T), hP = (k) => (hist[k] || []).map(P);
             const zt = zone3(t, 0.7, 0.88);
             [
-                { label: 'BOOST', code: 'MAP.KPA', val: G.isNum(P(d.boost)) ? G.fmt(P(d.boost), psi ? 1 : 2) : null, unit: pu, frac: G.isNum(d.boost) ? P(d.boost) / boostTop() : null, why: boostWhy(), hist: hP('boost'), lo: psi ? -15 : -1, hi: boostTop(), zone: zone3(t, 0.6, 0.85) },
+                { label: 'BOOST', code: 'MAP.KPA', val: G.isNum(P(d.boost)) ? G.fmt(P(d.boost), psi ? 1 : 2) : null, unit: pu, frac: G.isNum(d.boost) ? P(d.boost) / boostTop() : null, why: boostWhy(), hist: hP('boost'), lo: psi ? -15 : -1, hi: boostTop(), zone: zone3(t, 0.6, 0.85),
+                    sub: shown('boostCtl') && G.isNum(fr('boostCtl', d.boostTarget)) ? 'TGT ' + G.fmt(P(d.boostTarget), psi ? 1 : 2) : null },
                 { label: 'ETHANOL', code: 'E%', val: f0(eth), unit: '% E', frac: G.isNum(eth) ? eth / 100 : null, why: fuelWhy('ethanol'), hist: hist.ethanol, lo: 0, hi: 100 },
                 { label: 'OIL TEMP', code: 'ENG.OIL', val: f0(T(d.oil)), unit: tu, state: tState(t, 'oil', d.oil), frac: G.isNum(d.oil) ? (d.oil - 40) / 110 : null, hist: hT('oil'), lo: T(40), hi: T(150), zone: zt },
                 { label: 'COOLANT', code: 'H2O', val: f0(T(d.coolant)), unit: tu, state: tState(t, 'coolant', d.coolant), frac: G.isNum(d.coolant) ? (d.coolant - 40) / 90 : null, hist: hT('coolant'), lo: T(40), hi: T(130), zone: zt },
@@ -822,7 +865,8 @@ mgu.run({
                 { label: 'IGN TIMING', code: 'DEG', val: f1(tim), unit: 'deg', frac: G.isNum(tim) ? (tim + 10) / 50 : null, why: fuelWhy('timing'), hist: hist.timing, lo: -20, hi: 40 },
                 { label: 'POWER', code: pwU(), val: f0(pwv), unit: pwU(), frac: G.isNum(pwv) ? pwv / PW(settings.get('maxPower')) : null, zone: zone3(t, 0.75, 0.95) },
                 { label: 'TORQUE', code: tqU(), val: f0(tq), unit: tqU(), frac: G.isNum(tq) ? tq / tqMax() : null, zone: zone3(t, 0.75, 0.95) },
-                { label: 'MISFIRES', code: 'OBD.06', val: G.isNum(mis) ? String(mis) : null, unit: 'cycle', col: mis > 0 ? t.warn : null, why: fuelWhy('misfire'), state: G.isNum(mis) ? (mis > 0 ? ['WATCH', t.warn] : ['CLEAN', A(t.accent, 0.75)]) : null },
+                { label: 'MISFIRES', code: 'OBD.06', val: G.isNum(mis) ? String(mis) : null, unit: 'cycle', col: mis > 0 ? t.warn : null, why: fuelWhy('misfire'), state: G.isNum(mis) ? (mis > 0 ? ['WATCH', t.warn] : ['CLEAN', A(t.accent, 0.75)]) : null,
+                    cyl: G.isNum(mis) && Array.isArray(d.misfire) ? d.misfire : null },
             ].forEach((o, i) => {
                 const c = i % cols, r = Math.floor(i / cols);
                 readout(cv, t, x0 + c * (w + gap), y0 + r * (h + gap), w, h, Object.assign({ delay: 60 * i, size: 46 }, o));
@@ -863,7 +907,7 @@ mgu.run({
             engineSeen = Date.now();
             if (boostFromDme()) kickFuel();
             const bottom = G.pageBottom(cv);
-            H.backdrop(cv, t, bottom, HY, G.isNum(d.speed) ? d.speed : null);
+            H.backdrop(cv, t, bottom, HY, G.isNum(d.speed) ? d.speed : null, floorOpts(d));
             const gap = 18, x0 = 24, y0 = G.TOP + 22, w = (1552 - gap) / 2, h = (bottom - y0 - gap - 6) / 2;
             const mph = settings.get('speedUnit') === 'mph', demoRun = usingDemo();
             const best = demoRun ? { t60: 3.4, tq: 11.6, trap: 196.3 } : runs.best, last = demoRun ? { t60: 3.6 } : runs.last;
@@ -895,6 +939,101 @@ mgu.run({
             const pv = PW(pw.kw), tq = TQ(d.torque);
             readout(cv, t, x0, y0 + h + gap, w, h, { label: 'POWER', code: 'PEAK ' + (G.isNum(pk.power) ? G.fmt(PW(pk.power), 0) : '--') + ' ' + pwU(), val: f0(pv), unit: pwU(), frac: G.isNum(pv) ? pv / PW(settings.get('maxPower')) : 0, zone: zone3(t, 0.75, 0.95), delay: 160, size: 90, segs: 30 });
             readout(cv, t, x0 + w + gap, y0 + h + gap, w, h, { label: 'TORQUE', code: 'PEAK ' + (G.isNum(pk.torque) ? G.fmt(TQ(pk.torque), 0) : '--') + ' ' + tqU(), val: f0(tq), unit: tqU(), frac: G.isNum(tq) ? tq / tqMax() : 0, zone: zone3(t, 0.75, 0.95), delay: 240, size: 90, segs: 30 });
+        }
+        /* ---------- Chassis: the four tyres (TPMS) and M xDrive's split ----------
+         * Tyre pressures against the car's own targets, tyre temperatures, and where the engine's torque
+         * goes: the car's split signal, else the transfer case's front axle torque (read while this
+         * page shows), else the drive mode (2WD = all rear). No g-meter (on purpose). */
+        const TY_LOW = 0.2, TY_FLAT = 0.4, TY_HOT = 90;           // bar under the target; deg C
+        function tyreState(t, p, pt, tc) {
+            if (!G.isNum(p)) return null;
+            if (G.isNum(pt) && p < pt - TY_FLAT) return ['LOW', t.crit];
+            if (G.isNum(pt) && p < pt - TY_LOW) return ['CHECK', t.warn];
+            if (G.isNum(tc) && tc > TY_HOT) return ['HOT', t.warn];
+            return ['OK', A(t.accent, 0.75)];
+        }
+        let flowPh = 0, flowT = Date.now();
+        function drawChassis(cv, t, d) {
+            chassisSeen = Date.now();
+            kickFuel();
+            const bottom = G.pageBottom(cv), psi = psiOn(), tu = tU();
+            H.backdrop(cv, t, bottom, HY + 96, G.isNum(d.speed) ? d.speed : null, floorOpts(d));
+            const y0 = G.TOP + 22, h = bottom - y0 - 8, gap = 18, xl = 24, wl = 860, xr = xl + wl + gap, wr = 1552 - wl - gap;
+            // ---- tyres: the car seen from above, a readout by each wheel
+            const tyresOn = shown('tyres'), tempsOn = shown('tyreTemp');
+            H.panel(cv, t, xl, y0, wl, h, 'TYRES', { code: 'TPMS · ' + (psi ? 'PSI' : 'BAR'), delay: 0 });
+            const cx = xl + wl / 2, cy = y0 + h / 2 + 12, bw = 116, bl = 250, b = H.boot(150, 600);
+            cv.alpha(b);
+            const k = 26, body = [[cx - bw / 2 + k, cy - bl / 2], [cx + bw / 2 - k, cy - bl / 2], [cx + bw / 2, cy - bl / 2 + k * 1.6], [cx + bw / 2, cy + bl / 2 - k],
+                [cx + bw / 2 - k * 0.6, cy + bl / 2], [cx - bw / 2 + k * 0.6, cy + bl / 2], [cx - bw / 2, cy + bl / 2 - k], [cx - bw / 2, cy - bl / 2 + k * 1.6], [cx - bw / 2 + k, cy - bl / 2]];
+            cv.fillUnder(body.slice(0, 5), cy + bl / 2, A(t.accent, 0.04));
+            H.neon(cv, body, 2, A(t.accent, 0.8), 0.7);
+            H.neon(cv, [[cx - bw / 2 + 16, cy - 34], [cx + bw / 2 - 16, cy - 34]], 1.2, A(t.accent, 0.5), 0.3);
+            H.neon(cv, [[cx - bw / 2 + 18, cy + 58], [cx + bw / 2 - 18, cy + 58]], 1.2, A(t.accent, 0.5), 0.3);
+            H.chevrons(cv, cx, cy - bl / 2 - 18, 3, 12, 8, 'up', t.accent, (Date.now() / 1000 * (0.4 + (G.isNum(d.speed) ? d.speed : 0) / 80)) % 1);
+            cv.alpha(1);
+            TYRES.forEach((c, i) => {
+                const left = i % 2 === 0, front = i < 2;
+                const wx = left ? cx - bw / 2 - 16 : cx + bw / 2 + 4, wy = front ? cy - bl / 2 + 34 : cy + bl / 2 - 92;
+                const p = tyresOn ? d['p' + c] : null, pt = d['pt' + c], tc = tempsOn ? d['t' + c] : null;
+                const st = tyreState(t, p, pt, tc), col = st ? st[1] : dimC(t, 0.3);
+                cv.roundRect(wx, wy, 12, 58, 3, A(col, st && st[0] !== 'OK' ? 0.9 : 0.45));
+                // the readout, out to the side, with a leader to the wheel
+                const rw = 230, rx = left ? xl + 26 : xl + wl - 26 - rw, ry = wy - 12, rh = 112;
+                H.leader(cv, [[left ? rx + rw : rx, ry + 52], [left ? wx - 8 : wx + 20, ry + 52]], col, null, 0.5);
+                const rb = H.boot(250 + i * 70, 400);
+                if (rb <= 0) return;
+                cv.alpha(rb);
+                H.mono(cv, (front ? 'FRONT ' : 'REAR ') + (left ? 'L' : 'R'), rx, ry + 12, 13, dimC(t, 0.7));
+                if (st) H.mono(cv, st[0], rx + rw, ry + 12, 13, st[1], 'right');
+                const pv = G.isNum(p) ? P(p) : null;
+                const vw = H.num(cv, G.isNum(pv) ? G.fmt(pv, psi ? 1 : 2) : '--', rx, ry + 64, 46, G.isNum(pv) ? (st && st[0] !== 'OK' ? st[1] : textC(t)) : dimC(t, 0.25), 'left', G.isNum(pv) ? t.accent : null);
+                H.lbl(cv, psi ? 'PSI' : 'BAR', rx + vw + 8, ry + 64, 18, dimC(t, 0.8), 'left', 2);
+                const dl = G.isNum(p) && G.isNum(pt) ? P(p) - P(pt) : null;
+                H.mono(cv, 'TGT ' + (G.isNum(pt) ? G.fmt(P(pt), psi ? 1 : 2) : '--') + (G.isNum(dl) ? '  ' + (dl >= 0 ? '+' : '') + G.fmt(dl, psi ? 1 : 2) : ''), rx, ry + 86, 12, dimC(t, 0.6));
+                H.mono(cv, 'TEMP ' + (G.isNum(tc) ? G.fmt(T(tc), 0) + tu : '--'), rx, ry + 104, 12, G.isNum(tc) && tc > TY_HOT ? t.warn : dimC(t, 0.6));
+                cv.alpha(1);
+            });
+            if (!tyresOn && !usingDemo()) H.mono(cv, 'NO TYRE PRESSURES FROM THE CAR YET', cx, y0 + h - 18, 12, dimC(t, 0.45), 'center');
+
+            // ---- M xDrive: front / rear split, the torque flowing to each axle
+            const xd = settings.get('xdrive') === 'off' ? { rear: 100, from: 'hidden (RWD)' } : xdriveSplit(d);
+            const mode = /SPORT/.test(String(d.awd)) ? '4WD SPORT' : /_2WD/.test(String(d.awd)) ? '2WD' : /_4WD/.test(String(d.awd)) ? '4WD' : '--';
+            H.panel(cv, t, xr, y0, wr, h, 'M xDRIVE', { code: mode, delay: 80 });
+            const xb = H.boot(250, 500);
+            if (xb > 0) {
+                cv.alpha(xb);
+                const rear = G.isNum(xd.rear) ? G.clamp(xd.rear, 0, 100) : null, front = rear === null ? null : 100 - rear;
+                const mx = xr + wr / 2, my = y0 + 150, half = wr / 2 - 60;
+                H.head(cv, mode, mx, y0 + 70, 30, mode === '2WD' ? t.warn : t.accent, 'center', 6);
+                // the split bar: front from the left, rear from the right, meeting where the torque splits
+                const bx = xr + 40, bwid = wr - 80;
+                H.segBar(cv, bx, my, bwid, 16, 40, rear === null ? 0 : front / 100, () => t.accent2 || t.accent, dimC(t, 0.08));
+                if (rear !== null) {
+                    const sx = bx + bwid * front / 100;
+                    cv.line(sx, my - 14, sx, my + 30, 3, '#ffffff');
+                }
+                H.mono(cv, 'FRONT', bx, my - 14, 13, dimC(t, 0.7));
+                H.mono(cv, 'REAR', bx + bwid, my - 14, 13, dimC(t, 0.7), 'right');
+                const fv = H.num(cv, front === null ? '--' : String(Math.round(front)), bx, my + 78, 56, front === null ? dimC(t, 0.3) : textC(t), 'left', t.accent);
+                H.lbl(cv, '%', bx + fv + 6, my + 78, 22, dimC(t, 0.8));
+                const rv = H.num(cv, rear === null ? '--' : String(Math.round(rear)), bx + bwid - 30, my + 78, 56, rear === null ? dimC(t, 0.3) : textC(t), 'right', t.accent);
+                H.lbl(cv, '%', bx + bwid - 24, my + 78, 22, dimC(t, 0.8));
+                // torque flow: chevrons out of the gearbox toward each axle, quicker with more torque there
+                const tn = Date.now(), dts = Math.min(0.2, (tn - flowT) / 1000), tq = G.isNum(d.torque) ? d.torque : 0;
+                flowT = tn; flowPh = (flowPh + dts * (0.3 + tq / 300)) % 1;
+                if (rear !== null && tq > 20) {
+                    if (front > 3) H.chevrons(cv, mx - 40, my + 60, 4, 16, 9, 'left', t.accent, flowPh);
+                    if (rear > 3) H.chevrons(cv, mx + 40, my + 60, 4, 16, 9, 'right', t.accent, flowPh);
+                }
+                cv.circle(mx, my + 60, 7, A(t.accent, 0.25)); cv.circle(mx, my + 60, 3, '#ffffff');
+                H.mono(cv, xd.from ? 'FROM ' + String(xd.from).toUpperCase() : rear === null ? 'NO SPLIT FROM THE CAR' : 'FROM THE CAR\'S SPLIT SIGNAL', mx, my + 120, 12, dimC(t, 0.5), 'center');
+                // what the engine is putting down, and the air
+                const tqv = TQ(d.torque);
+                readout(cv, t, xr + 24, y0 + h - 118, (wr - 64) / 2, 96, { label: 'TORQUE', code: tqU(), val: f0(tqv), unit: tqU(), frac: G.isNum(tqv) ? tqv / tqMax() : null, zone: zone3(t, 0.75, 0.95), delay: 380, size: 40 });
+                readout(cv, t, xr + 40 + (wr - 64) / 2, y0 + h - 118, (wr - 64) / 2, 96, { label: 'OUTSIDE', code: 'AMB', val: f0(T(d.ambient)), unit: tu, delay: 440, size: 40 });
+                cv.alpha(1);
+            }
         }
         /* ---------- Engine: exhaust flap, engine map, Max Cooling ----------
          * Engine Config's car-tested command layer (controller.js / tune.js and the adapters behind
@@ -964,7 +1103,7 @@ mgu.run({
 
         function drawEngine(cv, t, d) {
             const bottom = G.pageBottom(cv), v = exhaust.view(), m = tune.view();
-            H.backdrop(cv, t, bottom, HY + 96, G.isNum(d.speed) ? d.speed : null);
+            H.backdrop(cv, t, bottom, HY + 96, G.isNum(d.speed) ? d.speed : null, floorOpts(d));
             const y0 = G.TOP + 22, h = bottom - y0 - 8, gap = 18, wl = 470, wc = 1552 - 2 * wl - 2 * gap;
             const xl = 24, xc = xl + wl + gap, xr = xc + wc + gap, by = y0 + h - 76;
             const tuner = m.tuner, mhd = tuner === 'mhd';
@@ -1030,13 +1169,14 @@ mgu.run({
         const cluster = new GridCluster(ctx, {
             theme: () => ctx.theme(),
             values() {
-                const d = data(), red = engine.redline(), psi = psiOn(), lo = psi ? -15 : -1, top = boostTop();
+                const d = data(), red = effRed(d), psi = psiOn(), lo = psi ? -15 : -1, top = boostTop();
                 const at = (x) => (G.isNum(x) ? G.clamp((x - lo) / (top - lo), 0, 1) : null);
                 const temp = (k, c, lo2, span) => ({ text: f0(T(c)), frac: G.isNum(c) ? (c - lo2) / span : null, state: clState(k, c) });
                 const iat = fr('iat', d.iat), eth = fr('ethanol', d.ethanol), bv = P(d.boost);
                 const pk = usingDemo() ? demoPeak.boost : peak.boost;
                 if (clusterShown) engineSeen = Date.now();          // keeps boost (and the slow values) coming from the DME
                 return {
+                    gLat: d.gLat, boostBar: d.boost, calm: settings.get('gridMotion') === 'calm', gear: gearText(d),
                     ethanol: { text: f0(eth), frac: G.isNum(eth) ? eth / 100 : null },
                     iat: temp('iat', iat, 0, 80),
                     oil: temp('oil', d.oil, 40, 110),
@@ -1053,14 +1193,21 @@ mgu.run({
         const clusterOn = () => settings.get('cluster') !== 'off';
         if (clusterOn()) cluster.start();
 
+        /* ---------- the HUD: shift light, gear, boost, oil and a strip of the grid (headup.js) ---------- */
+        const hud = new GridHud(ctx, { theme: () => ctx.theme(), values: () => cluster.src.values(), strip: () => settings.get('hudStrip') !== 'off' });
+        const hudOn = () => settings.get('hud') !== 'off';
+        if (hudOn()) hud.start();
+        // the shift pulse runs whatever the centre screen shows (the cluster and the HUD play it too)
+        setInterval(() => { try { const d = data(); watchShift(d, effRed(d)); } catch (e) { /* no data yet */ } }, 50);
+
         /* ---------- frame + loop ---------- */
         function header(cv, t) {
-            G.frame(cv, t, ['Drive', 'Vitals', 'Track', 'Engine'], page, [usingDemo() && { text: 'DEMO' }]);
+            G.frame(cv, t, ['Drive', 'Vitals', 'Track', 'Engine', 'Chassis'], page, [usingDemo() && { text: 'DEMO' }]);
         }
         async function render() {
             const t = ctx.theme(), d = data();
             const cv = ctx.canvas(W, HGT).clear(t.bg);
-            [drawDrive, drawVitals, drawTrack, drawEngine][page](cv, t, d);
+            [drawDrive, drawVitals, drawTrack, drawEngine, drawChassis][page](cv, t, d);
             header(cv, t);
             if (!render.n) { render.n = 1; log.info('first frame drawn'); }
             await ui.image('MAIN_GFX', cv);
@@ -1075,7 +1222,9 @@ mgu.run({
             if (k === 'maxPower' || k === 'powerSource') { delete peak.power; delete demoPeak.power; }
             if (k === 'boostSource') { delete peak.boost; updBoost(); }
             if (k === 'cluster') { if (clusterOn()) cluster.start(); else { cluster.stop(); clusterShown = false; } }
-            if (['theme', 'tempUnit', 'pressUnit', 'boostMax'].indexOf(k) >= 0) cluster.refresh();
+            if (['theme', 'tempUnit', 'pressUnit', 'boostMax'].indexOf(k) >= 0) { cluster.refresh(); hud.refresh(); }
+            if (k === 'hud') { if (hudOn()) hud.start(); else hud.stop(); }
+            if (k === 'hudStrip') hud.refresh();
             if (k === 'arm') exhaust.refresh().catch((e) => log.error('exhaust', e));
             if (k === 'tuner') exhaust.refresh().then(() => tune.refresh()).catch((e) => log.error('tune', e));
             if (k === 'page') { page = Math.max(0, PAGES.indexOf(settings.get('page'))); H.reboot(); }

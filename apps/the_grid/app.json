@@ -1,8 +1,8 @@
 {
   "id": "the_grid",
   "title": "The Grid",
-  "description": "The Grid: a Tron-style HUD for the BMW MGU (iDrive 7). Drive (tach, identity-disc speedometer, boost, ethanol), Vitals, Track timers, and Engine: exhaust flap, MHD / BM3 map switching with your own map names, and Max Cooling (Engine Config's car-tested commands, off until armed in Settings)",
-  "version": "0.2.0",
+  "description": "The Grid: a Tron-style HUD for the BMW MGU (iDrive 7). Drive (tach, identity-disc speedometer, boost, ethanol) over a light-grid floor that runs with your speed, Vitals, Track timers, Chassis (tyres, M xDrive split), and Engine: exhaust flap, MHD / BM3 map switching with your own map names, and Max Cooling (Engine Config's car-tested commands, off until armed in Settings). Also in the instrument cluster's middle and in the head-up display",
+  "version": "0.3.0",
   "vendor": "custom",
   "loggingId": "OAB7",
   "iconGlyph": "GRD",
@@ -102,6 +102,10 @@
         [
           "engine",
           "Engine"
+        ],
+        [
+          "chassis",
+          "Chassis"
         ]
       ]
     },
@@ -154,6 +158,54 @@
         [
           "off",
           "Off · BMW's map view"
+        ]
+      ]
+    },
+    {
+      "key": "hud",
+      "label": "Head-up display",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "The Grid in the HUD (shift light, gear, boost, oil)"
+        ],
+        [
+          "off",
+          "Off · BMW's HUD only"
+        ]
+      ]
+    },
+    {
+      "key": "hudStrip",
+      "label": "HUD grid strip",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "On · a strip of the grid runs with your speed"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "gridMotion",
+      "label": "Grid motion",
+      "type": "choice",
+      "default": "full",
+      "options": [
+        [
+          "full",
+          "Full · speed, leans into corners, pulses on shifts"
+        ],
+        [
+          "calm",
+          "Calm · speed only"
         ]
       ]
     },
@@ -246,6 +298,22 @@
         [
           "petrol",
           "Petrol"
+        ]
+      ]
+    },
+    {
+      "key": "warmup",
+      "label": "Warm-up redline",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "On · shift lights come early while the oil is cold"
+        ],
+        [
+          "off",
+          "Off · the full redline always"
         ]
       ]
     },
