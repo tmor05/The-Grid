@@ -44,6 +44,15 @@ const HIST_SEC = 300;
  * car fills differently (a tyre at 255 deg C, a pressure of 0): shown as no data, never drawn.
  */
 const TYRE_T = [-40, 150], TYRE_P = [0.5, 6], TYRE_PT = [1, 6];
+/** The first value of `key` at any depth of a message (plain, wrapped in its field's name, or in a list). */
+function deepField(v, key, depth) {
+    if (!v || typeof v !== 'object' || (depth || 0) > 6) return undefined;
+    if (Object.prototype.hasOwnProperty.call(v, key)) return v[key];
+    for (const k of Object.keys(v)) { const r = deepField(v[k], key, (depth || 0) + 1); if (r !== undefined) return r; }
+    return undefined;
+}
+/** A number, also when it arrives as text ("47"). */
+const numOf = (x) => (typeof x === 'string' && /^-?\d+(\.\d+)?$/.test(x.trim()) ? Number(x) : x);
 const RANGE = {
     tank: [0, 80],
     rpm: [0, 12000], ethanol: [0, 100], coolant: [-40, 160], oil: [-40, 170], gearbox: [-40, 160], egs: [-40, 160], ambient: [-50, 60], timing: [-64, 64],
@@ -349,11 +358,14 @@ mgu.run({
                     put('ptRL', tyreP(v.targetPressureTyreRLH)); put('ptRR', tyreP(v.targetPressureTyreRRH));
                 },
             }],
-            // fuel in the tank, litres (KOMBI's range / tank status, as Live Data reads it); read every 10 s too
+            // fuel in the tank, litres (KOMBI's range / tank status, as Live Data reads it); read every 10 s too.
+            // The field is looked for at any depth (the eDrive app finds KOMBI values wrapped in lists) and
+            // a number sent as text counts (Live Data's reading does the same).
             ['de.bmw.infotainment.KombiIF', {
                 statusRangeTankStatus: (v) => {
-                    logRaw('tank', [v && v.fluidLevelFuelTank, v && v.range]);
-                    put('tank', v && v.fluidLevelFuelTank);
+                    const l = numOf(deepField(v, 'fluidLevelFuelTank'));
+                    logRaw('tank', l === undefined ? JSON.stringify(v).slice(0, 300) : [l, numOf(deepField(v, 'range'))]);
+                    put('tank', l);
                 },
             }],
             ['de.bmw.infotainment.misc.MDrive', {

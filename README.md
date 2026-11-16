@@ -29,7 +29,9 @@ power and torque), with ethanol content added.
     moves the line where The Grid stops; the warning lights are always on top. It
     shows only while the car's own speed comes in (the vehicle service answering, a real speed,
     no demo data); otherwise every layer is hidden and BMW's gauges come back after
-    cluster-render's linger (3 s). Test: `node kit/tools/test_grid_panel.js`.
+    cluster-render's linger (3 s). The background is a shader and the pictures are cropped:
+    ~10.5 MB of cluster-render's 16 MB of pixel memory, which every cluster client shares (the
+    emulator enforces the limit too). Test: `node kit/tools/test_grid_panel.js`.
   - **Middle only** ([`cluster.js`](apps/the_grid/cluster.js), the map area between BMW's dials):
     the disc and the five readouts where BMW's map view goes. On this car BMW's dials, digital
     speed and gear are drawn over that area, so they overlap it.

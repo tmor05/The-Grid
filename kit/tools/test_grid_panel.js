@@ -3,7 +3,8 @@
  * The Grid's whole-cluster panel (apps/the_grid/panel.js), with a recording stand-in for the
  * cluster-render client:
  *   - every layer is on the panel target and inside its 1920 x 720 scene, above BMW's bottom strip
- *   - nothing drawn under the cut (setting "Cluster bottom edge"), opaque above it
+ *   - nothing drawn under the cut (setting "Cluster bottom edge"): only the ground shader reaches it
+ *   - pixel memory well under cluster-render's shared 16 MB
  *   - the fuel tile: litres -> gallons, warn / crit colours when low
  *   - every glyph atlas fits cluster-render's 2048 px asset limit
  *   - the safety gate: no live speed from the car -> every layer hidden; live again -> shown
@@ -90,26 +91,32 @@ assert(logs.some((s) => /hidden \(no live speed/.test(s)), 'the hide is logged')
 live = true; p._update(false);
 assert.strictEqual(visibleNow(), layers.length, 'live again: shown');
 
-// the cut: the dial pictures are opaque down to cut - FADE and empty from the cut down (BMW's strip)
-const left = layers.find((l) => l.kind === 'image' && l.o.x === 0), right = layers.find((l) => l.kind === 'image' && l.o.x >= 1300 && l.o.w > 500);
-const pxOf = (l) => sent.filter((m) => m.op === 'pixels' && m.ref === l.ref).pop().px;
-const alphaOf = (l, x, y) => pxOf(l)[(y * l.o.w + x) * 4 + 3];
-const checkCut = (c) => {
-    [left, right].forEach((l) => {
-        for (let x = 60; x < l.o.w - 60; x += 37) {          // clear of the soft inner edges
-            assert(alphaOf(l, x, c - FADE - 2) > 240, 'opaque above the cut ' + c + ' at x ' + x);
-            for (let y = c; y < CUT_MAX; y += 3) assert.strictEqual(alphaOf(l, x, y), 0, 'nothing under the cut ' + c + ' at ' + x + ',' + y);
-        }
-    });
-};
-checkCut(660);
-cut = 672; p._update(false); checkCut(672);
-cut = 648; p._update(false); checkCut(648);
-cut = 999; p._update(false); checkCut(660);           // an unknown value: the default
+// the cut: only the ground shader reaches it (transparent from u_cut down); every picture and
+// every other layer ends above the highest cut's fade, so nothing of ours is under the cut
+const { GROUND_FS } = require(path.join(dir, 'panel.js'));
+assert(/1\.0 - smoothstep\(u_cut - FADE, u_cut, q\.y\)/.test(GROUND_FS), 'the ground fades out at u_cut');
+const ground = layers.find((l) => l.kind === 'effect' && l.o.fs === GROUND_FS);
+assert(ground && ground.o.x === 0 && ground.o.w === 1920, 'the ground is the panel wide');
+layers.filter((l) => l !== ground).forEach((l) => assert(l.o.y + l.o.h <= Math.min.apply(null, CUTS) - FADE, 'layer ' + l.ref + ' ends above the cut: ' + (l.o.y + l.o.h)));
+const lastCut = () => sent.filter((m) => m.op === 'uniform' && m.ref === ground.ref && m.name === 'u_cut').pop().v[0];
+assert.strictEqual(lastCut(), 660);
+cut = 672; p._update(false); assert.strictEqual(lastCut(), 672);
+cut = 648; p._update(false); assert.strictEqual(lastCut(), 648);
+cut = 999; p._update(false); assert.strictEqual(lastCut(), 660, 'an unknown value: the default');
 cut = 660; p._update(false);
+// pixel memory: cluster-render's 16 MB is shared by every client (the HUD, other apps); image layers
+// and uncompressed assets count twice. 0.4.3 at ~15.5 MB lost its letter atlas on the car.
+const assets = sent.filter((m) => m.op === 'layer' && m.kind === 'asset');
+const imgBytes = layers.filter((l) => l.kind === 'image').reduce((n, l) => n + l.o.w * l.o.h * 4 * 2, 0);
+const assetBytes = assets.reduce((n, a) => n + a.o.w * a.o.h * (a.o.format === 'r8' ? 1 : 4) * 2, 0);
+const MB = (imgBytes + assetBytes) / 1e6;
+assert(MB < 11, 'pixel memory ' + MB.toFixed(2) + ' MB (keep well under the shared 16 MB)');
+// the pictures are transparent round what they hold (the ground is under them)
+const left = layers.find((l) => l.kind === 'image' && l.o.x < 100), pxL = sent.filter((m) => m.op === 'pixels' && m.ref === left.ref).pop().px;
+assert.strictEqual(pxL[(2 * left.o.w + 2) * 4 + 3], 0, 'the speedometer picture is transparent in its corner');
 // the fuel tile
 const lastU = (ref, name) => sent.filter((m) => m.op === 'uniform' && m.ref === ref && m.name === name).pop();
-const fuelText = sent.find((m) => m.op === 'layer' && m.kind === 'effect' && m.o.x === 384 + 14);
+const fuelText = sent.find((m) => m.op === 'layer' && m.kind === 'effect' && m.o.x === 384 + 14 && m.o.h > 8);
 assert(fuelText, 'the fuel tile has a value');
 const fuelBar = sent.find((m) => m.op === 'layer' && m.kind === 'effect' && m.o.x === 384 + 14 && m.o.h === 8);
 assert(fuelBar, 'the fuel tile has a bar');
@@ -129,7 +136,7 @@ p.stop();
 const main = fs.readFileSync(path.join(APP, 'main.js'), 'utf8');
 assert(/s === 'off' \? 'off' : s === 'middle' \? 'middle' : 'whole'/.test(main), 'cluster modes: off / middle / whole (an older "on" is whole)');
 assert(/vehicleLive = \(\) => !usingDemo\(\) && G\.isNum\(live\.speed\) && subs\.some\(\(s\) => \/\\\.Vehicle2\$\/\.test\(s\.iface\) && s\.available\)/.test(main), 'the gate: vehicle service, real speed, no demo');
-assert(/'de\.bmw\.infotainment\.KombiIF', \{\s*statusRangeTankStatus/.test(main) && /put\('tank', v && v\.fluidLevelFuelTank\)/.test(main), 'the tank level from the KOMBI');
+assert(/'de\.bmw\.infotainment\.KombiIF', \{\s*statusRangeTankStatus/.test(main) && /numOf\(deepField\(v, 'fluidLevelFuelTank'\)\)/.test(main), 'the tank level from the KOMBI, at any depth, text numbers too');
 assert(/TANK_L = 65/.test(main) && /\(l \* 0\.264172\)\.toFixed\(1\)/.test(main), 'the X4 M tank, gallons with mph');
 assert(/\.\(TPMS\|KombiIF\)\$/.test(main), 'the KOMBI is read every 10 s too');
 const spec = JSON.parse(fs.readFileSync(path.join(APP, 'app.json'), 'utf8'));
@@ -141,4 +148,4 @@ assert.strictEqual(edge.default, '660');
 assert.deepStrictEqual(edge.options.map((o) => parseInt(o[0], 10)).sort(), CUTS.slice().sort(), 'the edge options are the panel\'s cuts');
 
 fs.rmSync(dir, { recursive: true, force: true });
-console.log('test_grid_panel: ok (' + layers.length + ' layers)');
+console.log('test_grid_panel: ok (' + layers.length + ' layers, ' + MB.toFixed(1) + ' MB of pixel memory)');

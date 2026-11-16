@@ -9,6 +9,7 @@
  *   right    the tach: a segmented arc with the red zone (the warm-up redline moves it), the
  *            gear and programme in the middle, oil / coolant / gearbox under it
  *   middle   the identity disc (boost inside, shift light on its rim) over the light-grid floor
+ *   ground   one shader the panel wide: the background, the floor between the dials
  *   bottom   left alone: everything under the cut (setting "Cluster bottom edge", y 648 / 660 /
  *            672) stays transparent, so BMW's bottom strip (range, clock, street, outside air)
  *            shows; above it The Grid covers BMW's dials down to their feet (needle stubs, frame)
@@ -39,19 +40,31 @@ const A0 = -125, A1 = 125;                     // the dials' sweep (degrees, 0 =
 const SP = { cx: 300, cy: 318, R: 262 };       // speedometer
 const TA = { cx: 1620, cy: 318, R: 262 };      // tach
 const DIAL_PAD = 30, DS2 = (SP.R + DIAL_PAD) * 2;
-const MID = { x: 520, w: 880 };                // the floor between the dials (under the dial pictures' soft inner edges)
+const MID = { x: 520, w: 880 };                // the light-grid floor's band between the dials
 const HY = 430;                                // its horizon (scene y)
 const DISC = { cx: 960, cy: 238, R: 146 };
 const DS = Math.ceil(DISC.R * 1.3) * 2;
 const DX = DISC.cx - DS / 2, DY = DISC.cy - DS / 2;
-const LEFT_W = 640, RIGHT_X = 1320;            // the dial pictures: 0..640 and 1320..1920
-const SOFT = 50;                               // their inner edges fade into the floor over this many px
+/*
+ * Pixel memory: cluster-render has 16 MB for ALL its clients (image layers and uncompressed assets
+ * count twice their size), shared with the HUD and any other cluster app. 0.4.3's full-height
+ * opaque pictures came to ~15.5 MB and the gear-letter atlas was refused on the car (P drew as
+ * slices of the digit atlas). So the background is a shader (no pixels), the pictures are cropped
+ * to what they hold and transparent round it, and the disc's core is in the middle picture:
+ * ~10 MB in all (test_grid_panel keeps it under 11 MB).
+ */
+const PIC = {
+    left: { x: 12, y: 30, w: 580, h: 580 },       // the speedometer and its tiles
+    right: { x: 1328, y: 30, w: 580, h: 580 },    // the tach and its tiles
+    mid: { x: 640, y: 16, w: 640, h: 432 },       // the disc's body and core, the ties to the dials, the labels
+};
 const BIGCHARS = '0123456789', LETTERS = 'DMNPRS';   // two atlases: one wide one would pass the 2048 px limit
 
-/* The floor between the dials: dot matrix and rays above the horizon, the light-grid floor below
- * running with road speed (as cluster.js's), its sides melting into the background, transparent
- * from the cut (u_cut) down so BMW's bottom strip shows. */
-const MIDFLOOR_FS = `#version 100
+/* The ground under everything, the whole panel wide: the theme's background, and between the
+ * dials the floor (dot matrix and rays above the horizon, the light-grid floor below running with
+ * road speed, as cluster.js's) melting into it at the band's sides; transparent from the cut
+ * (u_cut) down so BMW's bottom strip shows. A shader: no pixel memory. */
+const GROUND_FS = `#version 100
 ${HIGHP}uniform float u_time;
 uniform vec2 u_floor;
 uniform vec3 u_streak;
@@ -63,14 +76,18 @@ uniform vec3 u_c2;
 uniform vec3 u_bg;
 uniform float u_cut;
 varying vec2 v_uv;
-const vec2 SIZE = vec2(${MID.w}.0, ${CUT_MAX}.0);
+const vec2 SIZE = vec2(${W}.0, ${CUT_MAX}.0);
+const float BX = ${MID.x}.0, BW = ${MID.w}.0;
 const float HY = ${HY}.0;
 const float FADE = ${FADE}.0;
 const float D = ${636 + 40 - HY}.0;       // the floor's depth (as drawn before the cut moved)
 void main() {
-    vec2 p = v_uv * SIZE;
+    vec2 q = v_uv * SIZE;
+    float alpha = 1.0 - smoothstep(u_cut - FADE, u_cut, q.y);
+    vec2 p = vec2(q.x - BX, q.y);
+    if (p.x < 0.0 || p.x > BW) { gl_FragColor = vec4(u_bg, alpha); return; }
     vec3 col = vec3(0.0);
-    float vp = SIZE.x * 0.5 - u_bend;
+    float vp = BW * 0.5 - u_bend;
     float hot = clamp(u_hot + u_pulse, 0.0, 1.4);
     if (p.y < HY) {
         vec2 g = mod(p - vec2(16.0, 12.0), 32.0);
@@ -83,7 +100,7 @@ void main() {
         float yy = max(p.y - HY, 0.5);
         float s = yy / D;
         col += u_c * mix(0.10 + 0.08 * hot, 0.03, smoothstep(0.0, 0.5, s));
-        float xc = vp + (SIZE.x * 0.5 - vp) * s;
+        float xc = vp + (BW * 0.5 - vp) * s;
         float u = (p.x - xc) / (128.0 * (0.18 + 0.82 * s));
         float du = 1.0 / (128.0 * (0.18 + 0.82 * s));
         float dv = abs(fract(u + 0.5) - 0.5) / du;
@@ -106,11 +123,11 @@ void main() {
         }
     }
     float h = abs(p.y - HY);
-    float mid = 1.0 - abs(p.x - SIZE.x * 0.5) / (SIZE.x * 0.5);
+    float mid = 1.0 - abs(p.x - BW * 0.5) / (BW * 0.5);
     col += u_c * (0.05 + 0.12 * u_pulse) * (1.0 - smoothstep(0.0, 6.0 + 10.0 * u_pulse, h));
     col += mix(u_c * 0.3, u_c2, mid) * (1.0 - smoothstep(0.5, 1.5, h)) * (0.4 + 0.6 * mid) * (1.0 + 0.4 * hot);
-    float side = smoothstep(0.0, 90.0, p.x) * smoothstep(0.0, 90.0, SIZE.x - p.x) * smoothstep(0.0, 20.0, p.y);
-    gl_FragColor = vec4(u_bg + col * side, 1.0 - smoothstep(u_cut - FADE, u_cut, p.y));
+    float side = smoothstep(0.0, 140.0, p.x) * smoothstep(0.0, 140.0, BW - p.x) * smoothstep(0.0, 20.0, p.y);
+    gl_FragColor = vec4(u_bg + col * side, alpha);
 }`;
 
 /* A dial's arc: n segments over A0..A1 between 0.86 R and 0.95 R, lit up to u_val (0..1); from
@@ -167,7 +184,7 @@ const READOUTS = [
 const SPEED_TEXT = { cx: SP.cx, y: SP.cy - 92, size: 150, cells: 3 };
 const GEAR_TEXT = { cx: TA.cx, y: TA.cy - 92, size: 150, cells: 1 };
 const MODE_TEXT = { size: 56, cells: 1 };
-const BOOST_TEXT = { size: 56, cells: 5 };
+const BOOST_TEXT = { size: 46, cells: 5 };       // '-10.7' (idle vacuum in psi) fits inside the core
 
 /** The speedometer's scale in the display unit. */
 function speedScale(mph) { return mph ? { max: 200, major: 20, minor: 10 } : { max: 320, major: 40, minor: 20 }; }
@@ -206,13 +223,11 @@ class GridPanel {
         L.fontS = cr.asset({ target: 'panel', format: 'r8', w: S.aw, h: S.ah, sampling: 'bilinear' });
         L.fontB = cr.asset({ target: 'panel', format: 'r8', w: B.aw, h: B.ah, sampling: 'bilinear' });
         L.fontL = cr.asset({ target: 'panel', format: 'r8', w: LT.aw, h: LT.ah, sampling: 'bilinear' });
-        L.floor = cr.effect(Object.assign({ klass: 'ambient', x: MID.x, y: 0, w: MID.w, h: CUT_MAX, fs: MIDFLOOR_FS, time_fps: 30 }, base));
-        L.left = cr.image(Object.assign({ klass: 'content', z: 0, x: 0, y: 0, w: LEFT_W, h: CUT_MAX }, base));
-        L.right = cr.image(Object.assign({ klass: 'content', z: 0, x: RIGHT_X, y: 0, w: W - RIGHT_X, h: CUT_MAX }, base));
-        L.mid = cr.image(Object.assign({ klass: 'content', z: 0, x: MID.x, y: 0, w: MID.w, h: CUT_MAX }, base));
+        L.floor = cr.effect(Object.assign({ klass: 'ambient', x: 0, y: 0, w: W, h: CUT_MAX, fs: GROUND_FS, time_fps: 30 }, base));
+        const pic = (r) => cr.image(Object.assign({ klass: 'content', z: 0, x: r.x, y: r.y, w: r.w, h: r.h }, base));
+        L.left = pic(PIC.left); L.right = pic(PIC.right); L.mid = pic(PIC.mid);
         L.ringA = cr.image(Object.assign({ klass: 'content', z: 1, x: DX, y: DY, w: DS, h: DS, sampling: 'bilinear' }, base));
         L.ringB = cr.image(Object.assign({ klass: 'content', z: 2, x: DX, y: DY, w: DS, h: DS, sampling: 'bilinear' }, base));
-        L.core = cr.image(Object.assign({ klass: 'content', z: 3, x: DX, y: DY, w: DS, h: DS }, base));
         L.dial = cr.effect(Object.assign({ klass: 'content', z: 4, x: DX, y: DY, w: DS, h: DS, fs: DIAL_FS, time: true }, base));
         L.spArc = cr.effect(Object.assign({ klass: 'content', z: 4, x: SP.cx - DS2 / 2, y: SP.cy - DS2 / 2, w: DS2, h: DS2, fs: ARC_FS }, base));
         L.taArc = cr.effect(Object.assign({ klass: 'content', z: 4, x: TA.cx - DS2 / 2, y: TA.cy - DS2 / 2, w: DS2, h: DS2, fs: ARC_FS, time: true }, base));
@@ -279,7 +294,7 @@ class GridPanel {
     _show(on) {
         if (this.visible === on) return;
         this.visible = on;
-        const L = this.L, refs = [L.floor, L.left, L.right, L.mid, L.ringA, L.ringB, L.core, L.dial, L.spArc, L.taArc]
+        const L = this.L, refs = [L.floor, L.left, L.right, L.mid, L.ringA, L.ringB, L.dial, L.spArc, L.taArc]
             .concat(Object.keys(L.bars).map((k) => L.bars[k]), Object.keys(L.texts).map((k) => L.texts[k].ref));
         refs.forEach((ref) => this.cr.set(ref, { visible: on }));
         this.log.info('cluster panel: ' + (on ? 'over BMW\'s gauges' : 'hidden (no live speed from the car): BMW\'s gauges'));
@@ -328,21 +343,6 @@ class GridPanel {
     }
 
     /** The background of a dial picture: opaque down to the fade, then nothing (BMW's strip). */
-    /**
-     * The background of a dial picture, in 4 px columns: opaque down to the cut - FADE, then
-     * fading out; nothing from the cut down (BMW's bottom strip). The inner edge (soft: 'right'
-     * or 'left') fades into the floor.
-     */
-    static _ground(cv, t, w, soft, cut) {
-        for (let x = 0; x < w; x += 4) {
-            const e = soft === 'right' ? w - x - 2 : x + 2;                      // distance from the inner edge
-            const k = e >= SOFT ? 1 : Math.max(0, e / SOFT);
-            if (k <= 0) continue;
-            cv.fillRect(x, 0, 4, cut - FADE, H.A(t.bg, k));
-            for (let i = 0; i < FADE; i += 2) cv.fillRect(x, cut - FADE + i, 4, 2, H.A(t.bg, k * (1 - (i + 1) / FADE)));
-        }
-    }
-
     _dialFace(cv, t, d, labels, unitText, code) {
         const c = t.accent;
         cv.circle(d.cx, d.cy, d.R * 1.02, H.A(c, 0.03));
@@ -366,45 +366,42 @@ class GridPanel {
         if (!force && key === this.picKey) return;
         this.picKey = key;
         const cr = this.cr, L = this.L, S = this.small;
-        const tile = (cv, r, ox) => {
-            H.panel(cv, t, r.x - ox, TILE_Y, r.w, TILE_H, r.label, { code: r.code, hatch: false, cut: 12 });
+        const tile = (cv, r, o) => {
+            const x = r.x - o.x, y = TILE_Y - o.y;
+            H.panel(cv, t, x, y, r.w, TILE_H, r.label, { code: r.code, hatch: false, cut: 12 });
             const unit = r.key === 'ethanol' ? '%' : r.key === 'fuel' ? (v.mph ? 'GAL' : 'L') : v.units.temp, s = r.size / S.size;
-            H.lbl(cv, unit, r.x - ox + 14 + this._textWidth(S, r.cells) * s + 4, TILE_Y + 32 + S.base * s, Math.max(16, r.size * 0.4), H.A(t.accent, 0.85), 'left', 1);
+            H.lbl(cv, unit, x + 14 + this._textWidth(S, r.cells) * s + 4, y + 32 + S.base * s, Math.max(16, r.size * 0.4), H.A(t.accent, 0.85), 'left', 1);
         };
-        // left: the speedometer
-        cr.pixels(L.left, null, picture(LEFT_W, CUT_MAX, (cv) => {
-            GridPanel._ground(cv, t, LEFT_W, 'right', cut);
+        // left: the speedometer (transparent round it: the ground shader is under it)
+        const PL = PIC.left, PR = PIC.right, PM = PIC.mid;
+        cr.pixels(L.left, null, picture(PL.w, PL.h, (cv) => {
             const n = sc.max / sc.minor, every = sc.major / sc.minor, txt = [];
             for (let s = 0; s <= sc.max; s += sc.major) txt.push(String(s));
-            this._dialFace(cv, t, SP, { minor: n, every, text: txt }, v.mph ? 'MPH' : 'KM/H', 'SPEED // VEH 0x30');
-            READOUTS.filter((r) => r.x < LEFT_W).forEach((r) => tile(cv, r, 0));
+            this._dialFace(cv, t, { cx: SP.cx - PL.x, cy: SP.cy - PL.y, R: SP.R }, { minor: n, every, text: txt }, v.mph ? 'MPH' : 'KM/H', 'SPEED // VEH 0x30');
+            READOUTS.filter((r) => r.x < W / 2).forEach((r) => tile(cv, r, PL));
         }));
         // right: the tach
-        cr.pixels(L.right, null, picture(W - RIGHT_X, CUT_MAX, (cv) => {
-            GridPanel._ground(cv, t, W - RIGHT_X, 'left', cut);
-            const d = { cx: TA.cx - RIGHT_X, cy: TA.cy, R: TA.R }, k = top / 1000, txt = [];
+        cr.pixels(L.right, null, picture(PR.w, PR.h, (cv) => {
+            const d = { cx: TA.cx - PR.x, cy: TA.cy - PR.y, R: TA.R }, k = top / 1000, txt = [];
             for (let i = 0; i <= k; i++) txt.push(String(i));
             this._dialFace(cv, t, d, { minor: k * 2, every: 2, text: txt, red: (i) => i * 1000 >= (v.fullRed || 7000) }, 'x1000 RPM', 'ENGINE // DME 0x12');
-            READOUTS.filter((r) => r.x >= RIGHT_X).forEach((r) => tile(cv, r, RIGHT_X));
+            READOUTS.filter((r) => r.x >= W / 2).forEach((r) => tile(cv, r, PR));
         }));
-        // middle: the disc's body, the ties to the dials, the identity line
-        cr.pixels(L.mid, null, picture(MID.w, CUT_MAX, (cv) => {
-            const cx = DISC.cx - MID.x;
-            H.discBody(cv, t, cx, DISC.cy, DISC.R);
-            const e = LEFT_W - MID.x;
-            H.leader(cv, [[e, 200], [e + 60, 200], [e + 60, DISC.cy], [cx - DISC.R * 1.15, DISC.cy]], t.accent, null, 0.5);
-            H.leader(cv, [[MID.w - e, 200], [MID.w - e - 60, 200], [MID.w - e - 60, DISC.cy], [cx + DISC.R * 1.15, DISC.cy]], t.accent, null, 0.5);
-            H.mono(cv, 'GRID//OS  ' + id.toUpperCase(), cx, 30, 14, H.A(t.accent, 0.55), 'center');
-            H.mono(cv, 'CLUSTER 0x203', cx, HY - 14, 11, H.A(t.accent, 0.3), 'center');
+        // middle: the disc's body and core (under the rings), the ties to the dials, the labels
+        cr.pixels(L.mid, null, picture(PM.w, PM.h, (cv) => {
+            const cx = DISC.cx - PM.x, cy = DISC.cy - PM.y, R = DISC.R, ly = 200 - PM.y;
+            H.discBody(cv, t, cx, cy, R);
+            H.leader(cv, [[0, ly], [60, ly], [60, cy], [cx - R * 1.15, cy]], t.accent, null, 0.5);
+            H.leader(cv, [[PM.w, ly], [PM.w - 60, ly], [PM.w - 60, cy], [cx + R * 1.15, cy]], t.accent, null, 0.5);
+            H.mono(cv, 'GRID//OS  ' + id.toUpperCase(), cx, 16, 14, H.A(t.accent, 0.55), 'center');
+            H.mono(cv, 'CLUSTER 0x203', cx, HY - 14 - PM.y, 11, H.A(t.accent, 0.3), 'center');
+            H.discCore(cv, t, cx, cy, R);
+            H.mono(cv, 'BOOST', cx, cy - 38, 14, H.A(t.accent, 0.8), 'center');
+            H.lbl(cv, v.units.press.toUpperCase(), cx, cy + 50, 18, H.A(t.accent, 0.85), 'center', 4);
         }));
         const c = DISC.cx - DX, R = DISC.R;
         cr.pixels(L.ringA, null, picture(DS, DS, (cv) => H.discRings(cv, t, id, c, c, R, 'a', 0)));
         cr.pixels(L.ringB, null, picture(DS, DS, (cv) => H.discRings(cv, t, id, c, c, R, 'b', 0)));
-        cr.pixels(L.core, null, picture(DS, DS, (cv) => {
-            H.discCore(cv, t, c, c, R);
-            H.mono(cv, 'BOOST', c, c - 38, 14, H.A(t.accent, 0.8), 'center');
-            H.lbl(cv, v.units.press.toUpperCase(), c, c + 50, 18, H.A(t.accent, 0.85), 'center', 4);
-        }));
         const ac = col3(t.accent), a2 = col3(t.accent2 || t.accent), warn = col3(t.warn), crit = col3(t.crit), cold = col3(t.cold || t.accent);
         this._uni(L.floor, 'u_c', ac); this._uni(L.floor, 'u_c2', a2); this._uni(L.floor, 'u_bg', col3(t.bg));
         this._uni(L.dial, 'u_c', ac); this._uni(L.dial, 'u_warn', warn); this._uni(L.dial, 'u_crit', crit); this._uni(L.dial, 'u_cold', cold);
@@ -490,4 +487,4 @@ class GridPanel {
     }
 }
 
-module.exports = { GridPanel, CUT, CUTS, CUT_MAX, FADE, SP, TA, READOUTS, speedScale, rpmTop, ARC_FS, MIDFLOOR_FS, BIGCHARS, LETTERS };
+module.exports = { GridPanel, CUT, CUTS, CUT_MAX, FADE, PIC, SP, TA, READOUTS, speedScale, rpmTop, ARC_FS, GROUND_FS, BIGCHARS, LETTERS };

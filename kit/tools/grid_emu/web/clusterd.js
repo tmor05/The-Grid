@@ -104,6 +104,14 @@ function start(canvases, opts) {
             if (m.op === 'layer' || m.op === 'asset') {
                 const k = key(m.ref);
                 drop(k);
+                // the service's 16 MB of pixel memory, shared by every client: image layers and
+                // uncompressed assets count twice their size (PROTOCOL.md); past it the layer is refused
+                const cost = pixelCost(m);
+                if (cost && pixelUsed() + cost > PIXEL_MEMORY) {
+                    log('warn', 'refused ' + m.op + ' ' + m.ref + ': the service\'s pixel memory is full (' + ((pixelUsed() + cost) / 1e6).toFixed(1) + ' MB)');
+                    ev(c, { ev: 'error', op: m.op, ref: m.ref, reason: 'the service\'s pixel memory is full' });
+                    return;
+                }
                 const l = { client: id, ref: m.ref, kind: m.op === 'asset' ? 'asset' : m.kind, msg: m, uniforms: {}, binds: {}, anims: {}, order: order++, t0: performance.now(), dirty: true, tex: null, scene: scenes[m.target] };
                 if (l.kind === 'asset') { l.bpp = m.format === 'r8' ? 1 : 4; l.w = m.w; l.h = m.h; l.px = new Uint8Array(m.w * m.h * l.bpp); }
                 if (l.kind === 'image') { l.bpp = 4; l.w = m.iw || m.w || 1; l.h = m.ih || m.h || 1; l.px = new Uint8Array(l.w * l.h * 4); }
@@ -136,6 +144,14 @@ function start(canvases, opts) {
         }
     });
 
+    const PIXEL_MEMORY = 16 * 1000 * 1000;
+    /** What a layer or asset costs of the service's pixel memory (as cluster-render counts it). */
+    function pixelCost(m) {
+        if (m.op === 'asset') return m.w * m.h * (m.format === 'r8' ? 1 : /^etc2/.test(m.format || '') ? 0.5 : 4) * (/^etc2/.test(m.format || '') ? 1 : 2);
+        if (m.kind === 'image') return (m.iw || m.w || 1) * (m.ih || m.h || 1) * 4 * 2;
+        return 0;
+    }
+    function pixelUsed() { let n = 0; layers.forEach((l) => { n += pixelCost(Object.assign({}, l.msg, { op: l.kind === 'asset' ? 'asset' : 'layer', kind: l.kind })); }); return n; }
     function drop(k) {
         const l = layers.get(k);
         if (!l) return;
