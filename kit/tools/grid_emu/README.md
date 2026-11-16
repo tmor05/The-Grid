@@ -41,7 +41,9 @@ cruise, highway, back roads or track laps. Cold start puts every fluid at the ou
 - `web/main.js`: boots the services, then the app (`require('APPDIR/app.js')`), and runs the page.
 - `web/host.js`, `web/mgu-stub.js`: the head unit; `kit/mgu` in the app resolves to the stub.
 - `web/renderd.js`, `web/gfx.js`: the renderer daemon and the WebAssembly draw engine.
-- `web/clusterd.js`: cluster-render's stand-in. `web/stock.js`: what BMW draws round it.
+- `web/clusterd.js`: cluster-render's stand-in. `web/stock.js`: what BMW draws round it, laid out
+  from a photo of the car's cluster (Sport layout): the map area under BMW's dials, digital speed
+  and gear; The Grid's whole-cluster panel over them; the telltales over everything.
 - `web/sim.js`: the car and its control units.
 
 The page carries the renderer (GPL-3.0-or-later, as `kit/renderd`) next to The Grid and the kit (MIT).

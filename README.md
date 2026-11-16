@@ -17,14 +17,25 @@ power and torque), with ethanol content added.
   pressures against the car's targets and their temperatures, M xDrive's front / rear split).
 - **Warm-up redline:** while the engine oil is cold the shift lights and the dial's red zone come
   early (4500 rpm up to 40 deg C of oil, the full redline from 80 deg C), as an M car's tach does.
-- **Instrument cluster:** The Grid in the map area between BMW's speedometer and tach
-  ([`cluster.js`](apps/the_grid/cluster.js), through cluster-render, which must be installed): the
-  identity disc with boost and the shift light, ethanol, intake, oil, coolant and trans. The
-  cluster's own GPU draws it (shaders, pictures sent once, live values as uniforms). It takes
-  the map view's spot and leaves the guidance box alone; Settings > Instrument cluster > Off
-  gives the map view back. `node kit/tools/grid_cluster_preview.js out.png` shows what it sends.
-  The floor there runs, leans and pulses as on the centre screen, and the disc's rings turn with
-  road speed (one animation message per change of pace; the renderer turns them).
+- **Instrument cluster** (through cluster-render, which must be installed; the cluster's own GPU
+  draws it: shaders, pictures sent once, live values as uniforms). Settings > Instrument cluster:
+  - **Whole cluster** (default; [`panel.js`](apps/the_grid/panel.js), cluster-render's `panel`
+    target, 1920 x 720, over BMW's gauges and under the telltales): The Grid's own speedometer
+    and tach (red zone with the warm-up redline, the gear and D / S / M), the identity disc with
+    boost and the shift light over the light-grid floor, ethanol and intake under the speedometer,
+    oil, coolant and trans under the tach. BMW's bottom strip (range, clock, street, outside air)
+    and a port over the speed-limit sign stay BMW's; the warning lights are always on top. It
+    shows only while the car's own speed comes in (the vehicle service answering, a real speed,
+    no demo data); otherwise every layer is hidden and BMW's gauges come back after
+    cluster-render's linger (3 s). Test: `node kit/tools/test_grid_panel.js`.
+  - **Middle only** ([`cluster.js`](apps/the_grid/cluster.js), the map area between BMW's dials):
+    the disc and the five readouts where BMW's map view goes. On this car BMW's dials, digital
+    speed and gear are drawn over that area, so they overlap it.
+    `node kit/tools/grid_cluster_preview.js out.png` shows what it sends.
+  - **Off**: BMW's own cluster.
+
+  The floor runs, leans and pulses as on the centre screen, and the disc's rings turn with road
+  speed (one animation message per change of pace; the renderer turns them).
 - **Head-up display:** ([`headup.js`](apps/the_grid/headup.js), cluster-render's `hud` target, inside
   the 453 x 200 box the HUD's own map uses): shift lights across the top, the gear with its
   programme (D / S / M), boost and oil either side, and a strip of the grid along the bottom that

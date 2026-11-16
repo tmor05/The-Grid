@@ -29,6 +29,7 @@ const H = require('./hud');
 const { Controller } = require('./controller');
 const { TuneControl } = require('./tune');
 const { GridCluster } = require('./cluster');
+const { GridPanel } = require('./panel');
 const { GridHud } = require('./headup');
 const { GridSound } = require('./sound');
 
@@ -1180,7 +1181,10 @@ mgu.run({
             });
         }
 
-        /* ---------- the cluster: The Grid in the map area between BMW's gauges (cluster.js) ---------- */
+        /* ---------- the cluster: over the whole cluster (panel.js) or in the map area between BMW's gauges (cluster.js) ---------- */
+        // The whole-cluster panel covers BMW's speedometer, so it shows only while the car's own speed comes in:
+        // the vehicle service answering, a real speed received, no demo data. Otherwise BMW's gauges come back.
+        const vehicleLive = () => !usingDemo() && G.isNum(live.speed) && subs.some((s) => /\.Vehicle2$/.test(s.iface) && s.available);
         const CL_LIMITS = { oil: [70, 130], coolant: [70, 112], trans: [40, 115], iat: [-60, 55] };
         const clState = (k, c) => (!G.isNum(c) ? null : c < CL_LIMITS[k][0] ? 'COLD' : c > CL_LIMITS[k][1] ? 'HOT' : 'OK');
         const cluster = new GridCluster(ctx, {
@@ -1191,7 +1195,7 @@ mgu.run({
                 const temp = (k, c, lo2, span) => ({ text: f0(T(c)), frac: G.isNum(c) ? (c - lo2) / span : null, state: clState(k, c) });
                 const iat = fr('iat', d.iat), eth = fr('ethanol', d.ethanol), bv = P(d.boost);
                 const pk = usingDemo() ? demoPeak.boost : peak.boost;
-                if (clusterShown) engineSeen = Date.now();          // keeps boost (and the slow values) coming from the DME
+                if (clusterShown || panelShown) engineSeen = Date.now();   // keeps boost (and the slow values) coming from the DME
                 return {
                     gLat: d.gLat, boostBar: d.boost, calm: settings.get('gridMotion') === 'calm', gear: gearText(d),
                     ethanol: { text: f0(eth), frac: G.isNum(eth) ? eth / 100 : null },
@@ -1202,13 +1206,24 @@ mgu.run({
                     boost: { text: G.isNum(bv) ? G.fmt(bv, psi ? 1 : 2) : null, zero: at(0), pos: at(bv), peak: at(P(pk)) },
                     shift: G.isNum(d.rpm) ? (d.rpm - (red - 2600)) / 2400 : 0, over: G.isNum(d.rpm) && d.rpm >= red - 200,
                     kmh: d.speed, units: { temp: tU(), press: psi ? 'psi' : 'bar' },
+                    live: vehicleLive(), speed: V(d.speed), mph: settings.get('speedUnit') === 'mph',
+                    rpm: d.rpm, red, fullRed: engine.redline(),
                 };
             },
         });
-        let clusterShown = false;
+        let clusterShown = false, panelShown = false;
         cluster.onShown = (on) => { clusterShown = on; };
-        const clusterOn = () => settings.get('cluster') !== 'off';
-        if (clusterOn()) cluster.start();
+        const panel = new GridPanel(ctx, cluster.src);
+        panel.onShown = (on) => { panelShown = on; };
+        // "Instrument cluster": Whole (default; an older saved "on" counts as whole), Middle (BMW's dials round it), Off
+        const clusterMode = () => { const s = settings.get('cluster'); return s === 'off' ? 'off' : s === 'middle' ? 'middle' : 'whole'; };
+        function applyCluster() {
+            const m = clusterMode();
+            if (m === 'whole') { cluster.stop(); clusterShown = false; panel.start(); }
+            else if (m === 'middle') { panel.stop(); panelShown = false; cluster.start(); }
+            else { cluster.stop(); panel.stop(); clusterShown = panelShown = false; }
+        }
+        applyCluster();
 
         /* ---------- the HUD: shift light, gear, boost, oil and a strip of the grid (headup.js) ---------- */
         const hud = new GridHud(ctx, { theme: () => ctx.theme(), values: () => cluster.src.values(), strip: () => settings.get('hudStrip') !== 'off' });
@@ -1244,8 +1259,8 @@ mgu.run({
         settings.onChange((k) => {
             if (k === 'maxPower' || k === 'powerSource') { delete peak.power; delete demoPeak.power; }
             if (k === 'boostSource') { delete peak.boost; updBoost(); }
-            if (k === 'cluster') { if (clusterOn()) cluster.start(); else { cluster.stop(); clusterShown = false; } }
-            if (['theme', 'tempUnit', 'pressUnit', 'boostMax'].indexOf(k) >= 0) { cluster.refresh(); hud.refresh(); }
+            if (k === 'cluster') applyCluster();
+            if (['theme', 'tempUnit', 'pressUnit', 'boostMax', 'speedUnit'].indexOf(k) >= 0) { cluster.refresh(); panel.refresh(); hud.refresh(); }
             if (k === 'hud') { if (hudOn()) hud.start(); else hud.stop(); }
             if (k === 'hudStrip') hud.refresh();
             if (k === 'arm') exhaust.refresh().catch((e) => log.error('exhaust', e));

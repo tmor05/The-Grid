@@ -58,8 +58,9 @@ async function boot() {
         onHmi: (a) => hu.hmi(a),
         onHmiTap: (x, y) => hu.hmiTap(x, y),
     });
-    const mapCv = document.createElement('canvas'), hudCv = document.createElement('canvas');
-    const cl = clusterd.start({ map: mapCv, hud: hudCv }, { log: (l, s) => addLog(l, 'cluster-render: ' + s) });
+    const mapCv = document.createElement('canvas'), hudCv = document.createElement('canvas'), panelCv = document.createElement('canvas');
+    const cl = clusterd.start({ map: mapCv, hud: hudCv, panel: panelCv }, { log: (l, s) => addLog(l, 'cluster-render: ' + s) });
+    const clOpts = () => ({ gridOn: cl.visible('map') > 0, panel: panelCv, panelOn: cl.visible('panel') > 0, hu });
 
     // the head unit, then the app (its mgu.run lands in hu.run)
     // the HMI's own image of the app's screen (software path): what the car shows without the renderer
@@ -101,7 +102,7 @@ async function boot() {
         requestAnimationFrame(frame);
         let dt = Math.min(0.06, (now - last) / 1000);
         last = now;
-        if (ctl.hold) { uiAcc += dt; if (uiAcc > 0.1) { uiAcc = 0; panel(); } car.settle(); sigAcc += dt; while (sigAcc > 0.04) { feed(); sigAcc -= 0.04; } cl.draw(); stock.cluster(clv, car, mapCv, { gridOn: (cl.count().map || 0) > 0, hu }); stock.hud(hv, car, hudCv, { gridOn: (cl.count().hud || 0) > 0, hu }); return; }
+        if (ctl.hold) { uiAcc += dt; if (uiAcc > 0.1) { uiAcc = 0; panel(); } car.settle(); sigAcc += dt; while (sigAcc > 0.04) { feed(); sigAcc -= 0.04; } cl.draw(); stock.cluster(clv, car, mapCv, clOpts()); stock.hud(hv, car, hudCv, { gridOn: cl.visible('hud') > 0, hu }); return; }
         // the driver: autopilot or the keys / pads
         const manualInput = input.gas || input.brake || input.left || input.right;
         if (manualInput && pilot.on()) pilot.stop('you took over');
@@ -121,8 +122,8 @@ async function boot() {
         while (sigAcc > 0.04) { feed(); sigAcc -= 0.04; }
         // the cluster's and the HUD's scenes, then the views round them
         cl.draw();
-        stock.cluster(clv, car, mapCv, { gridOn: (cl.count().map || 0) > 0, hu });
-        stock.hud(hv, car, hudCv, { gridOn: (cl.count().hud || 0) > 0, hu });
+        stock.cluster(clv, car, mapCv, clOpts());
+        stock.hud(hv, car, hudCv, { gridOn: cl.visible('hud') > 0, hu });
         frames++;
         if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
         uiAcc += dt;
@@ -165,7 +166,10 @@ async function boot() {
         const c = rd.conn, s = gfx.stats();
         $('#st-cid').textContent = (c.on ? (c.shown ? 'shown' : 'hidden') + (c.grab ? ' · controller held' : '') : 'no app') + ' · ' + fps + ' fps · JS ' + hu.jsMs.toFixed(1) + ' ms · GPU ' + s.avgMs.toFixed(2) + ' ms';
         const n = cl.count();
-        $('#st-cl').textContent = n.map ? n.map + ' layers from The Grid' : 'BMW map view (The Grid\'s cluster setting is off)';
+        const vp = cl.visible('panel'), vm = cl.visible('map');
+        $('#st-cl').textContent = vp ? 'The Grid over the whole cluster (' + vp + ' layers); BMW\'s warning lights and bottom strip on top / below'
+            : n.panel ? 'Whole cluster: hidden (no live speed from the car), BMW\'s gauges'
+            : vm ? 'The Grid in the middle (' + vm + ' layers), BMW\'s dials round it' : 'BMW\'s own cluster (The Grid\'s cluster setting is off)';
         $('#st-hud').textContent = n.hud ? n.hud + ' layers from The Grid' : 'stock HUD only (The Grid\'s HUD setting is off)';
         $('#scenv').textContent = pilot.on() ? 'Autopilot: ' + pilot.label() : 'Off · you drive' + (pilot.why ? ' (' + pilot.why + ')' : '');
         if (logDirty) {
@@ -354,7 +358,7 @@ async function boot() {
     // start in the driveway: warmed up, engine running, in park (Cold start is a button)
     car.reset(false);
     car.startEngine();
-    globalThis.__GRID__ = { hu, car, rd, cl, gfx, pilot, input, ctl, hudCv, mapCv, Car };
+    globalThis.__GRID__ = { hu, car, rd, cl, gfx, pilot, input, ctl, hudCv, mapCv, panelCv, Car };
 }
 
 /* ---------- the autopilot: scripted drives the app can be watched on ---------- */

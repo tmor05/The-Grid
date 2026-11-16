@@ -248,6 +248,12 @@ function start(canvases, opts) {
             Object.keys(scenes).forEach((k) => { if (scenes[k].ok) out[k] = drawScene(scenes[k], now); });
             return out;
         },
+        /** Visible layers with something drawn, per target (what the KOMBI would show). */
+        visible(target) {
+            let n = 0;
+            layers.forEach((l) => { if (l.msg.target === target && l.kind !== 'asset' && !(l.msg.visible === 0 || l.msg.visible === false)) n++; });
+            return n;
+        },
         /** Layers per target, for the page's status line. */
         count() {
             const out = {};

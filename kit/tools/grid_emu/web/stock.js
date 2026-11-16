@@ -11,68 +11,111 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const SANS = '600 {s}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const font = (s, w) => SANS.replace('{s}', s).replace('600', w || '600');
 
-/** An arc gauge: from a0 to a1 (radians, canvas angles), f lit 0..1. */
+/** An arc gauge: from a0 to a1 (radians, canvas angles; o.ccw: anticlockwise), f lit 0..1. */
 function gauge(g, cx, cy, r, a0, a1, f, o) {
+    const ccw = !!o.ccw, at = (k) => a0 + (a1 - a0) * k;
     g.lineCap = 'butt';
     g.strokeStyle = '#1c1f24'; g.lineWidth = 16;
-    g.beginPath(); g.arc(cx, cy, r, a0, a1); g.stroke();
-    if (o.red != null) { g.strokeStyle = '#4a1712'; g.beginPath(); g.arc(cx, cy, r, a0 + (a1 - a0) * o.red, a1); g.stroke(); }
+    g.beginPath(); g.arc(cx, cy, r, a0, a1, ccw); g.stroke();
+    if (o.red != null) { g.strokeStyle = '#4a1712'; g.beginPath(); g.arc(cx, cy, r, at(o.red), a1, ccw); g.stroke(); }
     if (f > 0.001) {
         const grad = g.createLinearGradient(cx - r, cy, cx + r, cy);
         grad.addColorStop(0, o.lit0); grad.addColorStop(1, o.lit1);
         g.strokeStyle = grad; g.lineWidth = 16;
-        g.beginPath(); g.arc(cx, cy, r, a0, a0 + (a1 - a0) * clamp(f, 0, 1)); g.stroke();
-        const a = a0 + (a1 - a0) * clamp(f, 0, 1);
-        g.strokeStyle = '#ffffff'; g.lineWidth = 5;
-        g.beginPath(); g.moveTo(cx + Math.cos(a) * (r - 26), cy + Math.sin(a) * (r - 26)); g.lineTo(cx + Math.cos(a) * (r + 12), cy + Math.sin(a) * (r + 12)); g.stroke();
+        g.beginPath(); g.arc(cx, cy, r, a0, at(clamp(f, 0, 1)), ccw); g.stroke();
     }
-    g.fillStyle = '#8b9099'; g.font = font(20, 500); g.textAlign = 'center'; g.textBaseline = 'middle';
+    // the needle (BMW's rests at the bottom of each dial)
+    const a = at(clamp(f, 0, 1));
+    g.strokeStyle = '#ff5a2a'; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(cx + Math.cos(a) * (r - 120), cy + Math.sin(a) * (r - 120)); g.lineTo(cx + Math.cos(a) * (r + 12), cy + Math.sin(a) * (r + 12)); g.stroke();
+    g.fillStyle = '#8b9099'; g.font = font(26, 600); g.textAlign = 'center'; g.textBaseline = 'middle';
     for (let i = 0; i <= o.n; i++) {
-        const a = a0 + (a1 - a0) * i / o.n, x = Math.cos(a), y = Math.sin(a);
+        const ai = at(i / o.n), x = Math.cos(ai), y = Math.sin(ai);
         g.strokeStyle = o.redTick && i >= o.redTick ? '#c2321f' : '#6d727b'; g.lineWidth = 3;
         g.beginPath(); g.moveTo(cx + x * (r - 18), cy + y * (r - 18)); g.lineTo(cx + x * (r - 32), cy + y * (r - 32)); g.stroke();
-        if (o.label) { g.fillStyle = o.redTick && i >= o.redTick ? '#d24a33' : '#9aa0aa'; g.fillText(o.label(i), cx + x * (r - 52), cy + y * (r - 52)); }
+        if (o.label) { g.fillStyle = o.redTick && i >= o.redTick ? '#d24a33' : '#c6cbd3'; g.fillText(o.label(i), cx + x * (r - 56), cy + y * (r - 56)); }
     }
+    g.textBaseline = 'alphabetic';
 }
 
+/**
+ * The cluster as it is on the car (G02 X4 M, iDrive 7, Sport layout; laid out from a photo of
+ * Tyson's cluster): big speedometer and tach whose faces reach over the middle, BMW's digital
+ * speed and gear drawn over the map area, and the strip along the bottom (fuel, range, clock,
+ * street, outside air) with the speed-limit sign in the speedometer's foot.
+ *
+ * Stacking, as the KOMBI does it: the map area (slot 0x100: BMW's map, or The Grid's middle) is
+ * UNDER the gauges; the whole-cluster panel (slot 0x203: The Grid's own dials) is OVER them; the
+ * telltales are over everything. Whether Check Control messages draw over the panel is not known
+ * yet (drawn over it here).
+ */
 function cluster(g, car, map, o) {
     const hu = o.hu, mph = hu.settings.get('speedUnit') === 'mph';
     g.fillStyle = '#000'; g.fillRect(0, 0, 1920, 720);
     const bg = g.createRadialGradient(960, 360, 200, 960, 360, 1100);
     bg.addColorStop(0, '#07080a'); bg.addColorStop(1, '#000');
     g.fillStyle = bg; g.fillRect(0, 0, 1920, 720);
-    // speedometer (left) and tachometer (right)
-    const sp = Math.abs(car.v) * 3.6 * (mph ? 0.621371 : 1), spMax = mph ? 200 : 320;
-    gauge(g, 236, 392, 168, Math.PI * 0.78, Math.PI * 2.02, sp / spMax, { n: 10, label: (i) => String(i * spMax / 10), lit0: '#3b4048', lit1: '#d9dde3' });
-    g.fillStyle = '#f2f4f7'; g.font = font(84, 600); g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-    g.fillText(String(Math.round(sp)), 236, 410);
-    g.fillStyle = '#8b9099'; g.font = font(24, 500); g.fillText(mph ? 'mph' : 'km/h', 236, 446);
-    const rpm = car.rpm, red = 7200;
-    gauge(g, 1684, 392, 168, Math.PI * 0.98, Math.PI * 2.22, rpm / 8000, { n: 8, red: red / 8000, redTick: 8, label: (i) => String(i), lit0: '#5a2a1a', lit1: '#ff5a1f' });
-    const gear = !car.running ? '' : car.sel !== 'D' ? car.sel : car.prog === 'M' ? 'M' + car.gear : car.prog === 'S' ? 'S' + car.gear : 'D' + car.gear;
-    g.fillStyle = '#f2f4f7'; g.font = font(80, 600); g.fillText(gear, 1684, 408);
-    g.fillStyle = '#8b9099'; g.font = font(22, 500); g.fillText('×1000 rpm', 1684, 470);
-    // the strip under the map: fuel and range, drive mode, outside air and time
-    g.font = font(24, 500); g.textAlign = 'left'; g.fillStyle = '#9aa0aa';
-    g.fillText('⛽', 470, 662);
-    g.fillStyle = '#1c1f24'; g.fillRect(506, 648, 220, 12);
-    g.fillStyle = car.fuel < 0.15 ? '#ff8a00' : '#c9ced6'; g.fillRect(506, 648, 220 * car.fuel, 12);
-    g.fillStyle = '#9aa0aa'; g.fillText(Math.round(car.fuel * 340 * (mph ? 1 : 1.609)) + (mph ? ' mi' : ' km'), 740, 662);
-    g.textAlign = 'center'; g.fillStyle = car.prog === 'S' || car.prog === 'M' ? '#ff6a3d' : '#c9ced6';
-    g.fillText(car.running ? (car.prog === 'D' ? 'COMFORT' : 'SPORT') : 'READY', 960, 662);
-    g.fillStyle = '#7d828b'; g.font = font(18, 500);
-    g.fillText(car.awd === '_2WD' ? 'M xDRIVE 2WD' : car.awd === '_4WD_SPORT' ? 'M xDRIVE 4WD SPORT' : 'M xDRIVE 4WD', 960, 690);
-    g.textAlign = 'right'; g.font = font(24, 500); g.fillStyle = '#9aa0aa';
-    const amb = car.env.ambient, f = hu.settings.get('tempUnit') === 'F';
-    g.fillText((f ? Math.round(amb * 1.8 + 32) + '°F' : Math.round(amb) + '°C') + '   ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }), 1450, 662);
-    // the map area: The Grid's scene, or BMW's own map view
+    // the map area, under the gauges: The Grid's middle, or BMW's own map view
     if (o.gridOn) g.drawImage(map, 416, 120);
     else stockMap(g, car);
-    g.strokeStyle = 'rgba(120,130,145,0.18)'; g.lineWidth = 1; g.setLineDash([6, 6]);
-    g.strokeRect(416.5, 120.5, 1087, 479); g.setLineDash([]);
-    // the cluster's warnings sit over everything (the app can't hide them)
+    // the dial faces reach over the map area, as on the car
+    g.fillStyle = 'rgba(40,44,52,0.55)';
+    g.beginPath(); g.arc(520, 400, 300, 0, TAU); g.fill();
+    g.beginPath(); g.arc(1400, 400, 300, 0, TAU); g.fill();
+    const sp = Math.abs(car.v) * 3.6 * (mph ? 0.621371 : 1), spMax = mph ? 200 : 320;
+    gauge(g, 520, 400, 330, Math.PI * 0.70, Math.PI * 1.67, sp / spMax, { n: 10, label: (i) => String(i * spMax / 10), lit0: '#3b4048', lit1: '#d9dde3' });
+    const rpm = car.rpm, red = 7200;
+    gauge(g, 1400, 400, 330, Math.PI * 0.30, -Math.PI * 0.67, rpm / 7000, { ccw: true, n: 7, red: 5 / 7, redTick: 6, label: (i) => String(i), lit0: '#5a2a1a', lit1: '#ff5a1f' });
+    // BMW's digital speed and gear: drawn over the map area (what showed through The Grid's middle on the car)
+    g.fillStyle = '#f2f4f7'; g.font = font(96, 600); g.textAlign = 'center';
+    g.fillText(String(Math.round(sp)), 560, 400);
+    g.fillStyle = '#c6cbd3'; g.font = font(28, 500); g.fillText(mph ? 'mph' : 'km/h', 650, 400);
+    g.fillRect(400, 412, 330, 3);
+    const gear = !car.running ? '' : car.sel !== 'D' ? car.sel : car.prog === 'M' ? 'M' + car.gear : car.prog === 'S' ? 'S' + car.gear : 'D' + car.gear;
+    g.fillStyle = '#f2f4f7'; g.font = font(96, 700); g.fillText(gear, 1490, 390);
+    g.fillRect(1250, 400, 330, 3);
+    g.fillStyle = '#8b9099'; g.font = font(22, 500); g.fillText('1/min ×1000', 1560, 590);
+    // fuel (bottom left) and the engine temperature gauge (bottom right)
+    const fuel = clamp(car.fuel, 0, 1);
+    g.lineCap = 'butt'; g.lineWidth = 10;
+    g.strokeStyle = '#1c1f24'; g.beginPath(); g.arc(215, 500, 140, Math.PI * 0.57, Math.PI * 1.11); g.stroke();
+    g.strokeStyle = fuel < 0.15 ? '#ff8a00' : '#c9ced6'; g.beginPath(); g.arc(215, 500, 140, Math.PI * 0.57, Math.PI * (0.57 + 0.54 * fuel)); g.stroke();
+    g.fillStyle = '#c6cbd3'; g.font = font(22, 600); g.textAlign = 'center';
+    g.fillText('1', 82, 450); g.fillText('½', 92, 568); g.fillText('0', 190, 622);
+    g.strokeStyle = '#1c1f24'; g.beginPath(); g.arc(1705, 500, 140, -Math.PI * 0.11, Math.PI * 0.43); g.stroke();
+    g.strokeStyle = '#c9ced6'; g.beginPath(); g.arc(1705, 500, 140, Math.PI * 0.20, Math.PI * 0.43); g.stroke();
+    // the dials' feet: thin lines along the bottom
+    g.strokeStyle = '#d9dde3'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(260, 640); g.lineTo(780, 650); g.stroke();
+    g.beginPath(); g.moveTo(1200, 650); g.lineTo(1640, 640); g.stroke();
+    // the speed-limit sign in the speedometer's foot (a stand-in value)
+    g.fillStyle = '#f4f4f4'; g.fillRect(527, 577, 62, 82);
+    g.strokeStyle = '#111'; g.lineWidth = 2; g.strokeRect(531, 581, 54, 74);
+    g.fillStyle = '#111'; g.font = font(12, 700); g.fillText('SPEED', 558, 597); g.fillText('LIMIT', 558, 611);
+    g.font = font(30, 700); g.fillText('45', 558, 645);
+    // the bottom strip: range, clock, street, outside air
+    g.font = font(36, 500); g.textAlign = 'left'; g.fillStyle = '#e8ecf2';
+    g.fillText('⛽', 140, 702);
+    g.fillText(Math.round(car.fuel * 340 * (mph ? 1 : 1.609)) + (mph ? ' mi' : ' km'), 190, 702);
+    g.fillText(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase(), 380, 702);
+    g.fillText('Main St', 750, 702);
+    const amb = car.env.ambient, f = hu.settings.get('tempUnit') === 'F';
+    g.textAlign = 'right';
+    g.fillText((f ? '+' + Math.round(amb * 1.8 + 32) + '°F' : Math.round(amb) + '°C'), 1700, 690);
+    // The Grid over the whole cluster (slot 0x203): over the gauges, under the telltales
+    if (o.panelOn && o.panel) g.drawImage(o.panel, 0, 0);
+    else g.strokeStyle = 'rgba(120,130,145,0.18)', g.lineWidth = 1, g.setLineDash([6, 6]), g.strokeRect(416.5, 120.5, 1087, 479), g.setLineDash([]);
+    // telltales: over everything (the seat-belt light while stopped, as in the photo)
+    if (Math.abs(car.v) < 0.3) seatbelt(g, 630, 690);
+    // the cluster's Check Control messages (over the panel here: not yet checked on the car)
     if (car.oil > 140) warn(g, 'Engine oil temperature high', '#ffb000');
     if (car.coolant > 118) warn(g, 'Engine coolant temperature high', '#ff3b1f');
+}
+function seatbelt(g, x, y) {
+    g.fillStyle = '#e0241b';
+    g.beginPath(); g.arc(x, y - 30, 6, 0, TAU); g.fill();
+    g.fillRect(x - 8, y - 22, 16, 22); g.fillRect(x - 12, y, 24, 6);
+    g.strokeStyle = '#e0241b'; g.lineWidth = 3; g.beginPath(); g.moveTo(x - 10, y - 24); g.lineTo(x + 10, y - 4); g.stroke();
 }
 function warn(g, s, c) {
     g.fillStyle = 'rgba(0,0,0,0.85)'; g.fillRect(660, 520, 600, 70);
