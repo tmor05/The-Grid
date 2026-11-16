@@ -254,15 +254,7 @@ async function boot() {
         wipeT = Date.now(); b.textContent = 'Click again to reset';
         setTimeout(() => { b.textContent = 'Reset app data'; }, 4000);
     });
-    $('#shot').addEventListener('click', () => {
-        const px = gfx.readPixels(), c = document.createElement('canvas');
-        c.width = 1920; c.height = 720;
-        const g = c.getContext('2d'), img = g.createImageData(1920, 720);
-        img.data.set(px); g.fillStyle = '#000'; g.fillRect(0, 0, 1920, 720);
-        const t = document.createElement('canvas'); t.width = 1920; t.height = 720; t.getContext('2d').putImageData(img, 0, 0);
-        g.drawImage(t, 0, 0);
-        const a = document.createElement('a'); a.download = 'the-grid-center.png'; a.href = c.toDataURL('image/png'); a.click();
-    });
+    $('#relo').addEventListener('click', () => location.reload());
 
     /* ---------- keys ---------- */
     const typing = (e) => /INPUT|SELECT|TEXTAREA/.test(e.target.tagName) && e.target.type !== 'range' && e.target.type !== 'checkbox';
@@ -285,7 +277,8 @@ async function boot() {
     window.addEventListener('keyup', (e) => { if (KEYS[e.key]) input[KEYS[e.key]] = false; });
     window.addEventListener('blur', () => Object.keys(input).forEach((k) => { input[k] = false; }));
 
-    // start in the driveway: engine running, in park
+    // start in the driveway: warmed up, engine running, in park (Cold start is a button)
+    car.reset(false);
     car.startEngine();
     globalThis.__GRID__ = { hu, car, rd, cl, gfx, pilot, input };
 }
@@ -307,7 +300,7 @@ function makePilot(car) {
             else if (phase === 1) { car.brake = 1; car.throttle = 0.35; label = 'brake boost'; if (t > 1.2) { phase = 2; t = 0; } }
             else if (phase === 2) { car.brake = 0; car.throttle = 1; label = 'launch!'; if (car.v > mph(118) || t > 14) { phase = 3; t = 0; } }
             else if (phase === 3) { car.throttle = 0; car.brake = 0.55; label = 'braking'; if (Math.abs(car.v) < 0.2) { phase = 4; t = 0; car.brake = 1; } }
-            else { car.brake = 1; label = 'done: Track page has the times'; if (t > 2) stop('run finished'); }
+            else { car.brake = 1; label = 'done: Track page has the times'; if (t > 1.5) { car.select('P'); stop('run finished: in P, see the Track page'); } }
         },
         cruise(dt) { ready(); car.steer = 0; holdSpeed(mph(45), dt); label = 'holding 45 mph'; },
         highway(dt) { ready(); car.steer = Math.sin(t / 7) * 0.05; holdSpeed(mph(75), dt); label = 'holding 75 mph'; },
