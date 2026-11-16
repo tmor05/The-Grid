@@ -89,10 +89,13 @@ async function boot() {
     const clv = $('#clview').getContext('2d'), hv = $('#hudview').getContext('2d');
     let last = performance.now(), acc = 0, sigAcc = 0, uiAcc = 0, frames = 0, fpsT = last, fps = 0;
     const input = { gas: false, brake: false, left: false, right: false };
+    // ctl.hold: the car stays as it is set (no driver, no physics) while its signals keep going out (for stills)
+    const ctl = { hold: false };
     function frame(now) {
         requestAnimationFrame(frame);
         let dt = Math.min(0.06, (now - last) / 1000);
         last = now;
+        if (ctl.hold) { car.settle(); sigAcc += dt; while (sigAcc > 0.04) { feed(); sigAcc -= 0.04; } cl.draw(); stock.cluster(clv, car, mapCv, { gridOn: (cl.count().map || 0) > 0, hu }); stock.hud(hv, car, hudCv, { gridOn: (cl.count().hud || 0) > 0, hu }); return; }
         // the driver: autopilot or the keys / pads
         const manualInput = input.gas || input.brake || input.left || input.right;
         if (manualInput && pilot.on()) pilot.stop('you took over');
@@ -280,7 +283,7 @@ async function boot() {
     // start in the driveway: warmed up, engine running, in park (Cold start is a button)
     car.reset(false);
     car.startEngine();
-    globalThis.__GRID__ = { hu, car, rd, cl, gfx, pilot, input };
+    globalThis.__GRID__ = { hu, car, rd, cl, gfx, pilot, input, ctl, hudCv, mapCv, Car };
 }
 
 /* ---------- the autopilot: scripted drives the app can be watched on ---------- */

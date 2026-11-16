@@ -59,6 +59,14 @@ class Car {
         });
     }
 
+    /** A car held still (stills): what was commanded is where it is. */
+    settle() {
+        if (this.mhdFlapCmd != null) this.flapOpen = this.mhdFlapCmd;
+        else if (this.flapCmd) this.flapOpen = this.flapCmd.open;
+    }
+    /** Crank torque (Nm) the model makes at rpm on boost (bar), full throttle. */
+    static torqueAt(rpm, boost) { return tqBase(rpm) * Math.max(0.2, 1 + boost); }
+
     startEngine() { if (this.running) return; this.running = true; this.rpm = 1350; this.crankT = 1.2; }
     stopEngine() { this.running = false; this.sel = 'P'; }
 

@@ -50,8 +50,8 @@ function cluster(g, car, map, o) {
     const rpm = car.rpm, red = 7200;
     gauge(g, 1684, 392, 168, Math.PI * 0.98, Math.PI * 2.22, rpm / 8000, { n: 8, red: red / 8000, redTick: 8, label: (i) => String(i), lit0: '#5a2a1a', lit1: '#ff5a1f' });
     const gear = !car.running ? '' : car.sel !== 'D' ? car.sel : car.prog === 'M' ? 'M' + car.gear : car.prog === 'S' ? 'S' + car.gear : 'D' + car.gear;
-    g.fillStyle = '#f2f4f7'; g.font = font(88, 600); g.fillText(gear, 1684, 418);
-    g.fillStyle = '#8b9099'; g.font = font(22, 500); g.fillText('×1000 rpm', 1684, 452);
+    g.fillStyle = '#f2f4f7'; g.font = font(80, 600); g.fillText(gear, 1684, 408);
+    g.fillStyle = '#8b9099'; g.font = font(22, 500); g.fillText('×1000 rpm', 1684, 470);
     // the strip under the map: fuel and range, drive mode, outside air and time
     g.font = font(24, 500); g.textAlign = 'left'; g.fillStyle = '#9aa0aa';
     g.fillText('⛽', 470, 662);
