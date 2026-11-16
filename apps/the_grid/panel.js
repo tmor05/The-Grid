@@ -4,7 +4,7 @@
  * (iDrive 7: slot 0x203, a 1920 x 720 scene drawn OVER BMW's gauges and UNDER the telltales;
  * cluster-render.conf: "over the gauges and under the telltales (VERIFIED on the car)").
  *
- *   left     The Grid's speedometer: a segmented arc, the speed in Orbitron, ethanol and intake
+ *   left     The Grid's speedometer: a segmented arc, the speed in Orbitron, the fuel tile and intake
  *            air under it
  *   right    the tach: a segmented arc with the red zone (the warm-up redline moves it), the
  *            gear and programme in the middle, oil / coolant / gearbox under it
@@ -174,7 +174,7 @@ void main() {
 /* The readouts under the dials. */
 const TILE_H = 112, TILE_Y = 494;
 const READOUTS = [
-    { key: 'ethanol', label: 'ETHANOL', code: 'E%', x: 36, w: 166, size: 44, cells: 3, segs: 12, zone: [2, 2] },
+    { key: 'fuelTile', label: 'ETHANOL', code: 'E%', x: 36, w: 166, size: 44, cells: 3, segs: 12, zone: [2, 2] },
     { key: 'iat', label: 'INTAKE', code: 'IAT', x: 210, w: 166, size: 44, cells: 3, segs: 12, zone: [0.7, 0.88] },
     { key: 'fuel', label: 'FUEL', code: 'TANK', x: 384, w: 204, size: 40, cells: 4, segs: 12, zone: [2, 2] },
     { key: 'oil', label: 'OIL', code: 'ENG', x: 1384, w: 148, size: 40, cells: 3, segs: 10, zone: [0.7, 0.88] },
@@ -362,14 +362,16 @@ class GridPanel {
     _pictures(force) {
         const t = this.src.theme(), v = this.src.values(), id = (t.name || 'sam').toLowerCase();
         const sc = speedScale(v.mph), top = GridPanel.top(v), cut = GridPanel.cut(v);
-        const key = [t.name, v.units.temp, v.units.press, v.mph ? 'mph' : 'kmh', top, v.fullRed, cut].join('|');
+        const key = [t.name, v.units.temp, v.units.press, v.mph ? 'mph' : 'kmh', top, v.fullRed, cut, (v.fuelTile || {}).label, (v.fuelTile || {}).unit].join('|');
         if (!force && key === this.picKey) return;
         this.picKey = key;
         const cr = this.cr, L = this.L, S = this.small;
         const tile = (cv, r, o) => {
             const x = r.x - o.x, y = TILE_Y - o.y;
-            H.panel(cv, t, x, y, r.w, TILE_H, r.label, { code: r.code, hatch: false, cut: 12 });
-            const unit = r.key === 'ethanol' ? '%' : r.key === 'fuel' ? (v.mph ? 'GAL' : 'L') : v.units.temp, s = r.size / S.size;
+            // the fuel tile's label / code / unit come from the value (ethanol or HPFP, by setting)
+            const ft = r.key === 'fuelTile' ? (v.fuelTile || {}) : null;
+            H.panel(cv, t, x, y, r.w, TILE_H, ft ? ft.label : r.label, { code: ft ? ft.code : r.code, hatch: false, cut: 12 });
+            const unit = ft ? ft.unit : r.key === 'fuel' ? (v.mph ? 'GAL' : 'L') : v.units.temp, s = r.size / S.size;
             H.lbl(cv, unit, x + 14 + this._textWidth(S, r.cells) * s + 4, y + 32 + S.base * s, Math.max(16, r.size * 0.4), H.A(t.accent, 0.85), 'left', 1);
         };
         // left: the speedometer (transparent round it: the ground shader is under it)

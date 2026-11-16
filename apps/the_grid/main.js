@@ -663,6 +663,20 @@ mgu.run({
         const misSum = (d) => (Array.isArray(d.misfire) ? d.misfire.reduce((a, b) => a + (b || 0), 0) : null);
         const psiOn = () => settings.get('pressUnit') === 'psi';
         const boostTop = () => { const b = BOOST_MAX[settings.get('boostMax')] || BOOST_MAX['2.5']; return psiOn() ? b[1] : b[0]; };
+        /*
+         * The fuel-content tile (Drive right column and the cluster): flex ethanol, or HPFP rail
+         * pressure (setting 'fuelTile'). This car's DME has no standard ethanol PID — the E% stays
+         * inside MHD's flex code — so HPFP rail is the default until MHD's own read is added.
+         * { label, code, unit, text (already formatted, or null), frac, why }.
+         */
+        function fuelTileDesc(d) {
+            if (settings.get('fuelTile') === 'ethanol') {
+                const eth = fr('ethanol', d.ethanol);
+                return { label: 'ETHANOL', code: 'E-CONTENT', unit: '% E', text: f0(eth), frac: G.isNum(eth) ? eth / 100 : null, why: fuelWhy('ethanol') };
+            }
+            const hp = fr('hpfp', d.hpfp);
+            return { label: 'HPFP', code: 'RAIL', unit: psiOn() ? 'psi' : 'bar', text: G.isNum(hp) ? G.fmt(P(hp), 0) : null, frac: G.isNum(hp) ? hp / 350 : null, why: fuelWhy('hpfp') };
+        }
 
         /* ---------- The Grid's look (hud.js) ---------- */
         const A = H.A;
@@ -865,11 +879,11 @@ mgu.run({
             H.chevrons(cv, 1022, dcy, 3, 15, 8, 'left', t.accent, cph % 1);
             H.leader(cv, [[1168, 336], [1168, 392], [1326, 392]], t.accent, 'B-07');
 
-            // right column: ethanol, power, torque
+            // right column: the fuel tile (ethanol or HPFP rail, by setting), power, torque
             const rx = 1340, rw = 236;
             linkStatus(cv, t, rx, 66);
-            const eth = fr('ethanol', d.ethanol);
-            readout(cv, t, rx, 80, rw, 96, { label: 'ETHANOL', code: 'E-CONTENT', val: f0(eth), unit: '% E', frac: G.isNum(eth) ? eth / 100 : null, segs: 20, why: fuelWhy('ethanol'), delay: 250, size: 50 });
+            const ft = fuelTileDesc(d);
+            readout(cv, t, rx, 80, rw, 96, { label: ft.label, code: ft.code, val: ft.text, unit: ft.unit, frac: ft.frac, segs: 20, why: ft.why, delay: 250, size: 50 });
             const pw = power(d), pv = PW(pw.kw), tq = TQ(d.torque);
             readout(cv, t, rx, 188, rw, 82, { label: 'POWER', code: pwU(), val: f0(pv), unit: pwU(), frac: G.isNum(pv) ? pv / PW(settings.get('maxPower')) : null, zone: zone3(t, 0.75, 0.95), delay: 320, size: 40 });
             readout(cv, t, rx, 282, rw, 82, { label: 'TORQUE', code: tqU(), val: f0(tq), unit: tqU(), frac: G.isNum(tq) ? tq / tqMax() : null, zone: zone3(t, 0.75, 0.95), delay: 390, size: 40 });
@@ -898,13 +912,14 @@ mgu.run({
             const w = (1552 - gap * (cols - 1)) / cols, h = (bottom - y0 - gap * (rows - 1) - 6) / rows;
             const psi = psiOn(), pu = psi ? 'psi' : 'bar', tu = tU();
             const hp = fr('hpfp', d.hpfp), lp = fr('lpfp', d.lpfp), iat = fr('iat', d.iat), eth = fr('ethanol', d.ethanol), tim = fr('timing', d.timing);
+            const showEth = settings.get('fuelTile') === 'ethanol';   // the car's DME has no ethanol PID; the tile drops unless flex ethanol is chosen
             const pwv = PW(power(d).kw), tq = TQ(d.torque), mis = fresh('misfire') ? misSum(d) : null, tr = transT(d);
             const hT = (k) => (hist[k] || []).map(T), hP = (k) => (hist[k] || []).map(P);
             const zt = zone3(t, 0.7, 0.88);
             [
                 { label: 'BOOST', code: 'MAP.KPA', val: G.isNum(P(d.boost)) ? G.fmt(P(d.boost), psi ? 1 : 2) : null, unit: pu, frac: G.isNum(d.boost) ? P(d.boost) / boostTop() : null, why: boostWhy(), hist: hP('boost'), lo: psi ? -15 : -1, hi: boostTop(), zone: zone3(t, 0.6, 0.85),
                     sub: shown('boostCtl') && G.isNum(fr('boostCtl', d.boostTarget)) ? 'TGT ' + G.fmt(P(d.boostTarget), psi ? 1 : 2) : null },
-                { label: 'ETHANOL', code: 'E%', val: f0(eth), unit: '% E', frac: G.isNum(eth) ? eth / 100 : null, why: fuelWhy('ethanol'), hist: hist.ethanol, lo: 0, hi: 100 },
+                showEth ? { label: 'ETHANOL', code: 'E%', val: f0(eth), unit: '% E', frac: G.isNum(eth) ? eth / 100 : null, why: fuelWhy('ethanol'), hist: hist.ethanol, lo: 0, hi: 100 } : null,
                 { label: 'OIL TEMP', code: 'ENG.OIL', val: f0(T(d.oil)), unit: tu, state: tState(t, 'oil', d.oil), frac: G.isNum(d.oil) ? (d.oil - 40) / 110 : null, hist: hT('oil'), lo: T(40), hi: T(150), zone: zt },
                 { label: 'COOLANT', code: 'H2O', val: f0(T(d.coolant)), unit: tu, state: tState(t, 'coolant', d.coolant), frac: G.isNum(d.coolant) ? (d.coolant - 40) / 90 : null, hist: hT('coolant'), lo: T(40), hi: T(130), zone: zt },
                 { label: 'TRANS / ZF8', code: 'EGS', val: f0(T(tr)), unit: tu, state: tState(t, 'trans', tr), frac: G.isNum(tr) ? (tr - 20) / 110 : null, hist: hT(G.isNum(d.gearbox) ? 'gearbox' : 'egs'), lo: T(20), hi: T(130), zone: zt },
@@ -916,7 +931,7 @@ mgu.run({
                 { label: 'TORQUE', code: tqU(), val: f0(tq), unit: tqU(), frac: G.isNum(tq) ? tq / tqMax() : null, zone: zone3(t, 0.75, 0.95) },
                 { label: 'MISFIRES', code: 'OBD.06', val: G.isNum(mis) ? String(mis) : null, unit: 'cycle', col: mis > 0 ? t.warn : null, why: fuelWhy('misfire'), state: G.isNum(mis) ? (mis > 0 ? ['WATCH', t.warn] : ['CLEAN', A(t.accent, 0.75)]) : null,
                     cyl: G.isNum(mis) && Array.isArray(d.misfire) ? d.misfire : null },
-            ].forEach((o, i) => {
+            ].filter(Boolean).forEach((o, i) => {
                 const c = i % cols, r = Math.floor(i / cols);
                 readout(cv, t, x0 + c * (w + gap), y0 + r * (h + gap), w, h, Object.assign({ delay: 60 * i, size: 46 }, o));
             });
@@ -1247,12 +1262,13 @@ mgu.run({
                 const d = data(), red = effRed(d), psi = psiOn(), lo = psi ? -15 : -1, top = boostTop();
                 const at = (x) => (G.isNum(x) ? G.clamp((x - lo) / (top - lo), 0, 1) : null);
                 const temp = (k, c, lo2, span) => ({ text: f0(T(c)), frac: G.isNum(c) ? (c - lo2) / span : null, state: clState(k, c) });
-                const iat = fr('iat', d.iat), eth = fr('ethanol', d.ethanol), bv = P(d.boost);
+                const iat = fr('iat', d.iat), bv = P(d.boost);
                 const pk = usingDemo() ? demoPeak.boost : peak.boost;
                 if (clusterShown || panelShown) engineSeen = Date.now();   // keeps boost (and the slow values) coming from the DME
+                const ft = fuelTileDesc(d);
                 return {
                     gLat: d.gLat, boostBar: d.boost, calm: settings.get('gridMotion') === 'calm', gear: gearText(d),
-                    ethanol: { text: f0(eth), frac: G.isNum(eth) ? eth / 100 : null },
+                    fuelTile: { text: ft.text, frac: ft.frac, label: ft.label, code: ft.code, unit: ft.unit },
                     iat: temp('iat', iat, 0, 80),
                     oil: temp('oil', d.oil, 40, 110),
                     coolant: temp('coolant', d.coolant, 40, 90),

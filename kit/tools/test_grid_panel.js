@@ -56,7 +56,7 @@ const vals = () => ({
     live, cut, fuel, rpmMax: 8000, speed: 69, mph: true, rpm: 6300, red: 7000, fullRed: 7000, kmh: 111, gLat: 0, boostBar: 1.3, calm: false,
     gear: { letter: 'S', num: '3' }, shift: 0.8, over: false,
     boost: { text: '19.1', zero: 0.4, pos: 0.8, peak: 0.85 },
-    ethanol: { text: '30', frac: 0.3 }, iat: { text: '88', frac: 0.4, state: 'OK' }, oil: { text: '219', frac: 0.6, state: 'OK' },
+    fuelTile: { text: '2320', frac: 0.6, label: 'HPFP', code: 'RAIL', unit: 'psi' }, iat: { text: '88', frac: 0.4, state: 'OK' }, oil: { text: '219', frac: 0.6, state: 'OK' },
     coolant: { text: '207', frac: 0.6, state: 'OK' }, trans: { text: '180', frac: 0.5, state: 'OK' },
     units: { temp: '°F', press: 'psi' },
 });
@@ -154,6 +154,12 @@ assert(spec.signals['de.bmw.infotainment.KombiIF'].statusRangeTankStatus, 'the t
 // the gearbox temperature is read in fast rounds too (the cluster keeps the poll fast; 0.4.1 - 0.4.4 never read it)
 assert(/if \(fast && pollFuel\.n % 8 === 4\) fast = fast\.concat\(want\('egs'\) \? \['egs'\] : \[\]/.test(main), 'EGS in fast rounds');
 assert(/if \(!pidsAsked\) await logObdPids\(\);/.test(main), 'the OBD PID list goes to the log once');
+// the fuel-content tile: a setting swaps the ethanol slot (no standard ethanol PID on this car) for HPFP rail
+const fuelTile = spec.settings.find((s) => s.key === 'fuelTile');
+assert(fuelTile && fuelTile.default === 'hpfp', 'fuelTile setting defaults to HPFP rail');
+assert.deepStrictEqual(fuelTile.options.map((o) => o[0]).sort(), ['ethanol', 'hpfp'], 'fuelTile options: ethanol / hpfp');
+assert(/function fuelTileDesc\(d\)/.test(main) && /settings\.get\('fuelTile'\) === 'ethanol'/.test(main), 'the fuel tile chooses by setting');
+assert(/key: 'fuelTile'/.test(fs.readFileSync(path.join(APP, 'panel.js'), 'utf8')), 'the panel fuel slot is generic (fuelTile)');
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('test_grid_panel: ok (' + layers.length + ' layers, ' + MB.toFixed(1) + ' MB of pixel memory)');
