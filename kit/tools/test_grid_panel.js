@@ -3,9 +3,10 @@
  * The Grid's whole-cluster panel (apps/the_grid/panel.js), with a recording stand-in for the
  * cluster-render client:
  *   - every layer is on the panel target and inside its 1920 x 720 scene, above BMW's bottom strip
+ *   - nothing drawn under the cut (setting "Cluster bottom edge"), opaque above it
+ *   - the fuel tile: litres -> gallons, warn / crit colours when low
  *   - every glyph atlas fits cluster-render's 2048 px asset limit
  *   - the safety gate: no live speed from the car -> every layer hidden; live again -> shown
- *   - the speed-limit port stays open (nothing of ours drawn over BMW's sign)
  *   - main.js: the setting's three modes, an older saved "on" counts as the whole cluster, the
  *     gate needs the vehicle service, a real speed and no demo data
  *
@@ -45,13 +46,13 @@ class FakeCR {
 const clientPath = path.join(dir, 'cluster_render_client.js');
 require.cache[require.resolve(clientPath)] = { id: clientPath, filename: clientPath, loaded: true, exports: { ClusterRender: FakeCR, DEFAULT_PATH: '/dev/null' } };
 
-const { GridPanel, CUT, LIMIT, BIGCHARS, LETTERS } = require(path.join(dir, 'panel.js'));
+const { GridPanel, CUTS, CUT_MAX, FADE, BIGCHARS, LETTERS } = require(path.join(dir, 'panel.js'));
 const { buildAtlas } = require(path.join(dir, 'cluster.js'));
 const { theme } = require(path.join(ROOT, 'kit', 'runtime', 'themes.js'));
 
-let live = true;
+let live = true, cut = 660, fuel = { text: '12.4', unit: 'GAL', frac: 0.72, low: false, empty: false };
 const vals = () => ({
-    live, speed: 69, mph: true, rpm: 6300, red: 7000, fullRed: 7000, kmh: 111, gLat: 0, boostBar: 1.3, calm: false,
+    live, cut, fuel, rpmMax: 8000, speed: 69, mph: true, rpm: 6300, red: 7000, fullRed: 7000, kmh: 111, gLat: 0, boostBar: 1.3, calm: false,
     gear: { letter: 'S', num: '3' }, shift: 0.8, over: false,
     boost: { text: '19.1', zero: 0.4, pos: 0.8, peak: 0.85 },
     ethanol: { text: '30', frac: 0.3 }, iat: { text: '88', frac: 0.4, state: 'OK' }, oil: { text: '219', frac: 0.6, state: 'OK' },
@@ -68,7 +69,7 @@ const layers = sent.filter((m) => m.op === 'layer' && m.kind !== 'asset');
 assert(layers.length >= 20, 'layers: ' + layers.length);
 layers.forEach((l) => {
     assert.strictEqual(l.o.target, 'panel', 'layer ' + l.ref + ' target');
-    assert(l.o.x >= 0 && l.o.y >= 0 && l.o.x + l.o.w <= 1920 && l.o.y + l.o.h <= CUT, 'layer ' + l.ref + ' inside the panel above the cut: ' + JSON.stringify([l.o.x, l.o.y, l.o.w, l.o.h]));
+    assert(l.o.x >= 0 && l.o.y >= 0 && l.o.x + l.o.w <= 1920 && l.o.y + l.o.h <= CUT_MAX, 'layer ' + l.ref + ' inside the panel above the lowest cut: ' + JSON.stringify([l.o.x, l.o.y, l.o.w, l.o.h]));
     assert.strictEqual(l.o.visible, false, 'layer ' + l.ref + ' starts hidden');
 });
 // atlases fit (a refused asset is ref 0: its text would be garbage)
@@ -89,12 +90,36 @@ assert(logs.some((s) => /hidden \(no live speed/.test(s)), 'the hide is logged')
 live = true; p._update(false);
 assert.strictEqual(visibleNow(), layers.length, 'live again: shown');
 
-// the port over BMW's speed-limit sign: the left picture leaves it transparent
-const left = layers.find((l) => l.kind === 'image' && l.o.x === 0);
-const px = sent.filter((m) => m.op === 'pixels' && m.ref === left.ref).pop().px, lw = left.o.w;
-const alpha = (x, y) => px[(y * lw + x) * 4 + 3];
-for (let y = LIMIT.y + 6; y < CUT - 2; y += 9) for (let x = LIMIT.x + 6; x < Math.min(lw, LIMIT.x + LIMIT.w - 6); x += 9) assert.strictEqual(alpha(x, y), 0, 'port open at ' + x + ',' + y);
-assert(alpha(300, 300) > 200, 'the speedometer is opaque');
+// the cut: the dial pictures are opaque down to cut - FADE and empty from the cut down (BMW's strip)
+const left = layers.find((l) => l.kind === 'image' && l.o.x === 0), right = layers.find((l) => l.kind === 'image' && l.o.x >= 1300 && l.o.w > 500);
+const pxOf = (l) => sent.filter((m) => m.op === 'pixels' && m.ref === l.ref).pop().px;
+const alphaOf = (l, x, y) => pxOf(l)[(y * l.o.w + x) * 4 + 3];
+const checkCut = (c) => {
+    [left, right].forEach((l) => {
+        for (let x = 60; x < l.o.w - 60; x += 37) {          // clear of the soft inner edges
+            assert(alphaOf(l, x, c - FADE - 2) > 240, 'opaque above the cut ' + c + ' at x ' + x);
+            for (let y = c; y < CUT_MAX; y += 3) assert.strictEqual(alphaOf(l, x, y), 0, 'nothing under the cut ' + c + ' at ' + x + ',' + y);
+        }
+    });
+};
+checkCut(660);
+cut = 672; p._update(false); checkCut(672);
+cut = 648; p._update(false); checkCut(648);
+cut = 999; p._update(false); checkCut(660);           // an unknown value: the default
+cut = 660; p._update(false);
+// the fuel tile
+const lastU = (ref, name) => sent.filter((m) => m.op === 'uniform' && m.ref === ref && m.name === name).pop();
+const fuelText = sent.find((m) => m.op === 'layer' && m.kind === 'effect' && m.o.x === 384 + 14);
+assert(fuelText, 'the fuel tile has a value');
+const fuelBar = sent.find((m) => m.op === 'layer' && m.kind === 'effect' && m.o.x === 384 + 14 && m.o.h === 8);
+assert(fuelBar, 'the fuel tile has a bar');
+assert.deepStrictEqual(lastU(fuelBar.ref, 'u_bar').v, [0.72, 12]);
+const ac = require(path.join(dir, 'cluster.js')).col3(theme('rinzler').accent), warnC = require(path.join(dir, 'cluster.js')).col3(theme('rinzler').warn);
+assert.deepStrictEqual(lastU(fuelBar.ref, 'u_c').v, ac, 'fuel bar in the accent when not low');
+fuel = { text: '1.9', unit: 'GAL', frac: 0.11, low: true, empty: false }; p._update(false);
+assert.deepStrictEqual(lastU(fuelBar.ref, 'u_c').v, warnC, 'fuel bar warns when low');
+fuel = { text: null, frac: null }; p._update(false);
+assert.strictEqual(lastU(fuelBar.ref, 'u_bar').v[0], -1, 'no tank value: an empty bar');
 // the dials read the right values
 const last = (name) => sent.filter((m) => m.op === 'uniform' && m.name === name).pop();
 assert(Math.abs(last('u_val') ? 1 : 0) === 1, 'dial values sent');
@@ -104,10 +129,16 @@ p.stop();
 const main = fs.readFileSync(path.join(APP, 'main.js'), 'utf8');
 assert(/s === 'off' \? 'off' : s === 'middle' \? 'middle' : 'whole'/.test(main), 'cluster modes: off / middle / whole (an older "on" is whole)');
 assert(/vehicleLive = \(\) => !usingDemo\(\) && G\.isNum\(live\.speed\) && subs\.some\(\(s\) => \/\\\.Vehicle2\$\/\.test\(s\.iface\) && s\.available\)/.test(main), 'the gate: vehicle service, real speed, no demo');
+assert(/'de\.bmw\.infotainment\.KombiIF', \{\s*statusRangeTankStatus/.test(main) && /put\('tank', v && v\.fluidLevelFuelTank\)/.test(main), 'the tank level from the KOMBI');
+assert(/TANK_L = 65/.test(main) && /\(l \* 0\.264172\)\.toFixed\(1\)/.test(main), 'the X4 M tank, gallons with mph');
+assert(/\.\(TPMS\|KombiIF\)\$/.test(main), 'the KOMBI is read every 10 s too');
 const spec = JSON.parse(fs.readFileSync(path.join(APP, 'app.json'), 'utf8'));
 const cl = spec.settings.find((s) => s.key === 'cluster');
 assert.strictEqual(cl.default, 'whole');
 assert.deepStrictEqual(cl.options.map((o) => o[0]), ['whole', 'middle', 'off']);
+const edge = spec.settings.find((s) => s.key === 'clusterEdge');
+assert.strictEqual(edge.default, '660');
+assert.deepStrictEqual(edge.options.map((o) => parseInt(o[0], 10)).sort(), CUTS.slice().sort(), 'the edge options are the panel\'s cuts');
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('test_grid_panel: ok (' + layers.length + ' layers)');

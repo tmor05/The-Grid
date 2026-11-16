@@ -45,6 +45,7 @@ const HIST_SEC = 300;
  */
 const TYRE_T = [-40, 150], TYRE_P = [0.5, 6], TYRE_PT = [1, 6];
 const RANGE = {
+    tank: [0, 80],
     rpm: [0, 12000], ethanol: [0, 100], coolant: [-40, 160], oil: [-40, 170], gearbox: [-40, 160], egs: [-40, 160], ambient: [-50, 60], timing: [-64, 64],
     boostFes: [-1, 4], boostDme: [-1, 4], boostTarget: [-1, 4], boostActual: [-1, 4], loadTarget: [0, 250], loadActual: [0, 250], tFL: TYRE_T, tFR: TYRE_T, tRL: TYRE_T, tRR: TYRE_T,
     pFL: TYRE_P, pFR: TYRE_P, pRL: TYRE_P, pRR: TYRE_P, ptFL: TYRE_PT, ptFR: TYRE_PT, ptRL: TYRE_PT, ptRR: TYRE_PT,
@@ -348,6 +349,13 @@ mgu.run({
                     put('ptRL', tyreP(v.targetPressureTyreRLH)); put('ptRR', tyreP(v.targetPressureTyreRRH));
                 },
             }],
+            // fuel in the tank, litres (KOMBI's range / tank status, as Live Data reads it); read every 10 s too
+            ['de.bmw.infotainment.KombiIF', {
+                statusRangeTankStatus: (v) => {
+                    logRaw('tank', [v && v.fluidLevelFuelTank, v && v.range]);
+                    put('tank', v && v.fluidLevelFuelTank);
+                },
+            }],
             ['de.bmw.infotainment.misc.MDrive', {
                 statusMSystem: (v) => {
                     live.awd = v.statusAllWheelSetup; live.awdQual = v.qualifierFunctionAllWheel;
@@ -363,7 +371,7 @@ mgu.run({
         log.info('subscribing signals');
         // tyre values: also read every 10 s - BMW's own x_call only ever reads them, so a car may not notify them
         const subs = [], startT = Date.now();
-        Promise.all(watches.map(([iface, h]) => ctx.signals.watch(iface, '1', h, log, /\.TPMS$/.test(iface) ? { pollMs: 10000 } : undefined)
+        Promise.all(watches.map(([iface, h]) => ctx.signals.watch(iface, '1', h, log, /\.(TPMS|KombiIF)$/.test(iface) ? { pollMs: 10000 } : undefined)
             .then((s) => { subs.push(s); return s; })))
             .then((all) => log.info('signals: ' + all.map((s) => s.iface.split('.').pop() + (s.error ? '(err)' : '')).join(' ')));
 
@@ -1185,6 +1193,14 @@ mgu.run({
         // The whole-cluster panel covers BMW's speedometer, so it shows only while the car's own speed comes in:
         // the vehicle service answering, a real speed received, no demo data. Otherwise BMW's gauges come back.
         const vehicleLive = () => !usingDemo() && G.isNum(live.speed) && subs.some((s) => /\.Vehicle2$/.test(s.iface) && s.available);
+        // the fuel gauge: litres in the tank over the X4 M's 65 l tank; gallons with mph, litres otherwise
+        const TANK_L = 65;
+        const fuelValue = () => {
+            const l = usingDemo() ? null : live.tank;
+            if (!G.isNum(l)) return { text: null, frac: null };
+            const mph = settings.get('speedUnit') === 'mph', frac = G.clamp(l / TANK_L, 0, 1);
+            return { text: mph ? (l * 0.264172).toFixed(1) : String(Math.round(l)), unit: mph ? 'GAL' : 'L', frac, low: frac < 0.15, empty: frac < 0.07 };
+        };
         const CL_LIMITS = { oil: [70, 130], coolant: [70, 112], trans: [40, 115], iat: [-60, 55] };
         const clState = (k, c) => (!G.isNum(c) ? null : c < CL_LIMITS[k][0] ? 'COLD' : c > CL_LIMITS[k][1] ? 'HOT' : 'OK');
         const cluster = new GridCluster(ctx, {
@@ -1207,7 +1223,8 @@ mgu.run({
                     shift: G.isNum(d.rpm) ? (d.rpm - (red - 2600)) / 2400 : 0, over: G.isNum(d.rpm) && d.rpm >= red - 200,
                     kmh: d.speed, units: { temp: tU(), press: psi ? 'psi' : 'bar' },
                     live: vehicleLive(), speed: V(d.speed), mph: settings.get('speedUnit') === 'mph',
-                    rpm: d.rpm, red, fullRed: engine.redline(),
+                    rpm: d.rpm, red, fullRed: engine.redline(), rpmMax: engine.scaleMax(),
+                    fuel: fuelValue(), cut: parseInt(settings.get('clusterEdge'), 10) || 660,
                 };
             },
         });
@@ -1261,6 +1278,7 @@ mgu.run({
             if (k === 'boostSource') { delete peak.boost; updBoost(); }
             if (k === 'cluster') applyCluster();
             if (['theme', 'tempUnit', 'pressUnit', 'boostMax', 'speedUnit'].indexOf(k) >= 0) { cluster.refresh(); panel.refresh(); hud.refresh(); }
+            if (k === 'clusterEdge' || k === 'redline' || k === 'rpmScale') panel.refresh();
             if (k === 'hud') { if (hudOn()) hud.start(); else hud.stop(); }
             if (k === 'hudStrip') hud.refresh();
             if (k === 'arm') exhaust.refresh().catch((e) => log.error('exhaust', e));

@@ -84,10 +84,15 @@ function cluster(g, car, map, o) {
     g.fillText('1', 82, 450); g.fillText('½', 92, 568); g.fillText('0', 190, 622);
     g.strokeStyle = '#1c1f24'; g.beginPath(); g.arc(1705, 500, 140, -Math.PI * 0.11, Math.PI * 0.43); g.stroke();
     g.strokeStyle = '#c9ced6'; g.beginPath(); g.arc(1705, 500, 140, Math.PI * 0.20, Math.PI * 0.43); g.stroke();
-    // the dials' feet: thin lines along the bottom
+    // the dials' feet, as in Tyson's photos: red needle stubs at the bottom of each dial (y ~615-645),
+    // the grey "mph", and the white frame line along their bottoms (y ~641-658); the strip's text from ~663
+    g.fillStyle = '#c0141a';
+    g.beginPath(); g.moveTo(330, 640); g.lineTo(420, 618); g.lineTo(430, 630); g.lineTo(345, 648); g.fill();
+    g.beginPath(); g.moveTo(560, 642); g.lineTo(640, 616); g.lineTo(648, 628); g.lineTo(572, 650); g.fill();
+    g.beginPath(); g.moveTo(1500, 640); g.lineTo(1560, 615); g.lineTo(1570, 628); g.lineTo(1512, 648); g.fill();
+    g.fillStyle = '#7d828b'; g.font = font(30, 500); g.textAlign = 'left'; g.fillText('mph', 690, 650); g.textAlign = 'center';
     g.strokeStyle = '#d9dde3'; g.lineWidth = 3;
-    g.beginPath(); g.moveTo(260, 640); g.lineTo(780, 650); g.stroke();
-    g.beginPath(); g.moveTo(1200, 650); g.lineTo(1640, 640); g.stroke();
+    g.beginPath(); g.moveTo(150, 640); g.quadraticCurveTo(200, 656, 300, 656); g.lineTo(760, 652); g.lineTo(800, 664); g.lineTo(1120, 664); g.lineTo(1160, 652); g.lineTo(1620, 656); g.quadraticCurveTo(1720, 656, 1770, 640); g.stroke();
     // the speed-limit sign in the speedometer's foot (a stand-in value)
     g.fillStyle = '#f4f4f4'; g.fillRect(527, 577, 62, 82);
     g.strokeStyle = '#111'; g.lineWidth = 2; g.strokeRect(531, 581, 54, 74);
@@ -95,7 +100,7 @@ function cluster(g, car, map, o) {
     g.font = font(30, 700); g.fillText('45', 558, 645);
     // the bottom strip: range, clock, street, outside air
     g.font = font(36, 500); g.textAlign = 'left'; g.fillStyle = '#e8ecf2';
-    g.fillText('⛽', 140, 702);
+    g.fillText('⛽', 140, 704);
     g.fillText(Math.round(car.fuel * 340 * (mph ? 1 : 1.609)) + (mph ? ' mi' : ' km'), 190, 702);
     g.fillText(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase(), 380, 702);
     g.fillText('Main St', 750, 702);

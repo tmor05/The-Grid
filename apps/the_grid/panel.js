@@ -9,8 +9,11 @@
  *   right    the tach: a segmented arc with the red zone (the warm-up redline moves it), the
  *            gear and programme in the middle, oil / coolant / gearbox under it
  *   middle   the identity disc (boost inside, shift light on its rim) over the light-grid floor
- *   bottom   left alone: everything under y = CUT stays transparent, so BMW's bottom strip
- *            (range, clock, street, outside air) shows, and a port over the speed-limit sign
+ *   bottom   left alone: everything under the cut (setting "Cluster bottom edge", y 648 / 660 /
+ *            672) stays transparent, so BMW's bottom strip (range, clock, street, outside air)
+ *            shows; above it The Grid covers BMW's dials down to their feet (needle stubs, frame)
+ *   fuel     a fuel gauge under the speedometer (KOMBI's litres in the tank; BMW's own fuel gauge
+ *            is under the panel)
  *
  * BMW's warning lights stay on top whatever we draw (the KOMBI draws them over this slot).
  *
@@ -28,7 +31,9 @@ const G = require('./kit/gauges');
 const H = require('./hud');
 
 const W = 1920, HT = 720;
-const CUT = 636, FADE = 20;                    // opaque above CUT - FADE, transparent from CUT down
+const CUT_MAX = 680, FADE = 8;                 // layers reach CUT_MAX; opaque down to cut - FADE, transparent from cut down
+const CUTS = [648, 660, 672], CUT_DEFAULT = 660;
+const CUT = CUT_DEFAULT;                       // (the default cut; the live one comes from src.values().cut)
 const UPDATE_MS = 66;
 const A0 = -125, A1 = 125;                     // the dials' sweep (degrees, 0 = up, clockwise)
 const SP = { cx: 300, cy: 318, R: 262 };       // speedometer
@@ -39,15 +44,13 @@ const HY = 430;                                // its horizon (scene y)
 const DISC = { cx: 960, cy: 238, R: 146 };
 const DS = Math.ceil(DISC.R * 1.3) * 2;
 const DX = DISC.cx - DS / 2, DY = DISC.cy - DS / 2;
-const LEFT_W = 600, RIGHT_X = 1320;            // the dial pictures: 0..600 and 1320..1920
-const SOFT = 60;                               // their inner edges fade into the floor over this many px
-// the port over BMW's speed-limit sign (measured on the car's cluster, generous on every side)
-const LIMIT = { x: 492, y: 546, w: 112, h: CUT - 546 };
+const LEFT_W = 640, RIGHT_X = 1320;            // the dial pictures: 0..640 and 1320..1920
+const SOFT = 50;                               // their inner edges fade into the floor over this many px
 const BIGCHARS = '0123456789', LETTERS = 'DMNPRS';   // two atlases: one wide one would pass the 2048 px limit
 
 /* The floor between the dials: dot matrix and rays above the horizon, the light-grid floor below
  * running with road speed (as cluster.js's), its sides melting into the background, transparent
- * from CUT down so BMW's bottom strip shows. */
+ * from the cut (u_cut) down so BMW's bottom strip shows. */
 const MIDFLOOR_FS = `#version 100
 ${HIGHP}uniform float u_time;
 uniform vec2 u_floor;
@@ -58,11 +61,12 @@ uniform float u_hot;
 uniform vec3 u_c;
 uniform vec3 u_c2;
 uniform vec3 u_bg;
+uniform float u_cut;
 varying vec2 v_uv;
-const vec2 SIZE = vec2(${MID.w}.0, ${CUT}.0);
+const vec2 SIZE = vec2(${MID.w}.0, ${CUT_MAX}.0);
 const float HY = ${HY}.0;
 const float FADE = ${FADE}.0;
-const vec3 PORT = vec3(${LIMIT.x - MID.x}.0, ${LIMIT.y}.0, ${LIMIT.x + LIMIT.w - MID.x}.0);   // the speed-limit port (x0, y0, x1)
+const float D = ${636 + 40 - HY}.0;       // the floor's depth (as drawn before the cut moved)
 void main() {
     vec2 p = v_uv * SIZE;
     vec3 col = vec3(0.0);
@@ -76,7 +80,6 @@ void main() {
         col += u_c * 0.03 * (1.0 + hot * 0.8) * (1.0 - smoothstep(0.0, 0.02 + 0.03 * (HY - p.y) / HY, r));
         col += u_c * (0.13 + 0.12 * hot) * smoothstep(HY - 90.0, HY, p.y);
     } else {
-        float D = SIZE.y + 40.0 - HY;
         float yy = max(p.y - HY, 0.5);
         float s = yy / D;
         col += u_c * mix(0.10 + 0.08 * hot, 0.03, smoothstep(0.0, 0.5, s));
@@ -107,8 +110,7 @@ void main() {
     col += u_c * (0.05 + 0.12 * u_pulse) * (1.0 - smoothstep(0.0, 6.0 + 10.0 * u_pulse, h));
     col += mix(u_c * 0.3, u_c2, mid) * (1.0 - smoothstep(0.5, 1.5, h)) * (0.4 + 0.6 * mid) * (1.0 + 0.4 * hot);
     float side = smoothstep(0.0, 90.0, p.x) * smoothstep(0.0, 90.0, SIZE.x - p.x) * smoothstep(0.0, 20.0, p.y);
-    float port = step(PORT.x, p.x) * step(p.x, PORT.z) * step(PORT.y, p.y);
-    gl_FragColor = vec4(u_bg + col * side, (1.0 - smoothstep(SIZE.y - FADE, SIZE.y, p.y)) * (1.0 - port));
+    gl_FragColor = vec4(u_bg + col * side, 1.0 - smoothstep(u_cut - FADE, u_cut, p.y));
 }`;
 
 /* A dial's arc: n segments over A0..A1 between 0.86 R and 0.95 R, lit up to u_val (0..1); from
@@ -155,8 +157,9 @@ void main() {
 /* The readouts under the dials. */
 const TILE_H = 112, TILE_Y = 494;
 const READOUTS = [
-    { key: 'ethanol', label: 'ETHANOL', code: 'E%', x: 52, w: 200, size: 46, cells: 3, segs: 14, zone: [2, 2] },
-    { key: 'iat', label: 'INTAKE', code: 'IAT', x: 264, w: 200, size: 46, cells: 3, segs: 14, zone: [0.7, 0.88] },
+    { key: 'ethanol', label: 'ETHANOL', code: 'E%', x: 36, w: 166, size: 44, cells: 3, segs: 12, zone: [2, 2] },
+    { key: 'iat', label: 'INTAKE', code: 'IAT', x: 210, w: 166, size: 44, cells: 3, segs: 12, zone: [0.7, 0.88] },
+    { key: 'fuel', label: 'FUEL', code: 'TANK', x: 384, w: 204, size: 40, cells: 4, segs: 12, zone: [2, 2] },
     { key: 'oil', label: 'OIL', code: 'ENG', x: 1384, w: 148, size: 40, cells: 3, segs: 10, zone: [0.7, 0.88] },
     { key: 'coolant', label: 'COOLANT', code: 'H2O', x: 1540, w: 148, size: 40, cells: 3, segs: 10, zone: [0.7, 0.88] },
     { key: 'trans', label: 'TRANS', code: 'ZF', x: 1696, w: 148, size: 40, cells: 3, segs: 10, zone: [0.7, 0.88] },
@@ -203,10 +206,10 @@ class GridPanel {
         L.fontS = cr.asset({ target: 'panel', format: 'r8', w: S.aw, h: S.ah, sampling: 'bilinear' });
         L.fontB = cr.asset({ target: 'panel', format: 'r8', w: B.aw, h: B.ah, sampling: 'bilinear' });
         L.fontL = cr.asset({ target: 'panel', format: 'r8', w: LT.aw, h: LT.ah, sampling: 'bilinear' });
-        L.floor = cr.effect(Object.assign({ klass: 'ambient', x: MID.x, y: 0, w: MID.w, h: CUT, fs: MIDFLOOR_FS, time_fps: 30 }, base));
-        L.left = cr.image(Object.assign({ klass: 'content', z: 0, x: 0, y: 0, w: LEFT_W, h: CUT }, base));
-        L.right = cr.image(Object.assign({ klass: 'content', z: 0, x: RIGHT_X, y: 0, w: W - RIGHT_X, h: CUT }, base));
-        L.mid = cr.image(Object.assign({ klass: 'content', z: 0, x: MID.x, y: 0, w: MID.w, h: CUT }, base));
+        L.floor = cr.effect(Object.assign({ klass: 'ambient', x: MID.x, y: 0, w: MID.w, h: CUT_MAX, fs: MIDFLOOR_FS, time_fps: 30 }, base));
+        L.left = cr.image(Object.assign({ klass: 'content', z: 0, x: 0, y: 0, w: LEFT_W, h: CUT_MAX }, base));
+        L.right = cr.image(Object.assign({ klass: 'content', z: 0, x: RIGHT_X, y: 0, w: W - RIGHT_X, h: CUT_MAX }, base));
+        L.mid = cr.image(Object.assign({ klass: 'content', z: 0, x: MID.x, y: 0, w: MID.w, h: CUT_MAX }, base));
         L.ringA = cr.image(Object.assign({ klass: 'content', z: 1, x: DX, y: DY, w: DS, h: DS, sampling: 'bilinear' }, base));
         L.ringB = cr.image(Object.assign({ klass: 'content', z: 2, x: DX, y: DY, w: DS, h: DS, sampling: 'bilinear' }, base));
         L.core = cr.image(Object.assign({ klass: 'content', z: 3, x: DX, y: DY, w: DS, h: DS }, base));
@@ -267,6 +270,11 @@ class GridPanel {
 
     refresh() { if (this.cr && this.cr.ready) { this._pictures(false); this._update(true); } }
 
+    /** The tach's top: the app's rev scale (Settings > Rev scale / Redline), else redline + 800 rounded up. */
+    static top(v) { return G.isNum(v.rpmMax) && v.rpmMax >= 4000 ? v.rpmMax : rpmTop(v.fullRed); }
+    /** The cut: one of CUTS (setting "Cluster bottom edge"), else the default. */
+    static cut(v) { return CUTS.indexOf(v.cut) >= 0 ? v.cut : CUT_DEFAULT; }
+
     /** Every layer shown or hidden at once (hidden: the slot goes back to BMW after the linger). */
     _show(on) {
         if (this.visible === on) return;
@@ -321,19 +329,17 @@ class GridPanel {
 
     /** The background of a dial picture: opaque down to the fade, then nothing (BMW's strip). */
     /**
-     * The background of a dial picture, in 4 px columns: opaque down to the fade, then nothing
-     * (BMW's strip); the inner edge (soft: 'right' or 'left') fades into the floor; over the port
-     * only the part above it is drawn (BMW's speed-limit sign shows inside).
+     * The background of a dial picture, in 4 px columns: opaque down to the cut - FADE, then
+     * fading out; nothing from the cut down (BMW's bottom strip). The inner edge (soft: 'right'
+     * or 'left') fades into the floor.
      */
-    static _ground(cv, t, w, port, soft) {
+    static _ground(cv, t, w, soft, cut) {
         for (let x = 0; x < w; x += 4) {
             const e = soft === 'right' ? w - x - 2 : x + 2;                      // distance from the inner edge
             const k = e >= SOFT ? 1 : Math.max(0, e / SOFT);
             if (k <= 0) continue;
-            const inPort = port && x + 4 > port.x && x < port.x + port.w;
-            const solid = inPort ? port.y : CUT - FADE;
-            cv.fillRect(x, 0, 4, solid, H.A(t.bg, k));
-            if (!inPort) for (let i = 0; i < FADE; i += 2) cv.fillRect(x, CUT - FADE + i, 4, 2, H.A(t.bg, k * (1 - (i + 1) / FADE)));
+            cv.fillRect(x, 0, 4, cut - FADE, H.A(t.bg, k));
+            for (let i = 0; i < FADE; i += 2) cv.fillRect(x, cut - FADE + i, 4, 2, H.A(t.bg, k * (1 - (i + 1) / FADE)));
         }
     }
 
@@ -355,37 +361,34 @@ class GridPanel {
 
     _pictures(force) {
         const t = this.src.theme(), v = this.src.values(), id = (t.name || 'sam').toLowerCase();
-        const sc = speedScale(v.mph), top = rpmTop(v.fullRed);
-        const key = [t.name, v.units.temp, v.units.press, v.mph ? 'mph' : 'kmh', top, v.fullRed].join('|');
+        const sc = speedScale(v.mph), top = GridPanel.top(v), cut = GridPanel.cut(v);
+        const key = [t.name, v.units.temp, v.units.press, v.mph ? 'mph' : 'kmh', top, v.fullRed, cut].join('|');
         if (!force && key === this.picKey) return;
         this.picKey = key;
         const cr = this.cr, L = this.L, S = this.small;
         const tile = (cv, r, ox) => {
             H.panel(cv, t, r.x - ox, TILE_Y, r.w, TILE_H, r.label, { code: r.code, hatch: false, cut: 12 });
-            const unit = r.key === 'ethanol' ? '%' : v.units.temp, s = r.size / S.size;
+            const unit = r.key === 'ethanol' ? '%' : r.key === 'fuel' ? (v.mph ? 'GAL' : 'L') : v.units.temp, s = r.size / S.size;
             H.lbl(cv, unit, r.x - ox + 14 + this._textWidth(S, r.cells) * s + 4, TILE_Y + 32 + S.base * s, Math.max(16, r.size * 0.4), H.A(t.accent, 0.85), 'left', 1);
         };
         // left: the speedometer
-        cr.pixels(L.left, null, picture(LEFT_W, CUT, (cv) => {
-            GridPanel._ground(cv, t, LEFT_W, LIMIT, 'right');
+        cr.pixels(L.left, null, picture(LEFT_W, CUT_MAX, (cv) => {
+            GridPanel._ground(cv, t, LEFT_W, 'right', cut);
             const n = sc.max / sc.minor, every = sc.major / sc.minor, txt = [];
             for (let s = 0; s <= sc.max; s += sc.major) txt.push(String(s));
             this._dialFace(cv, t, SP, { minor: n, every, text: txt }, v.mph ? 'MPH' : 'KM/H', 'SPEED // VEH 0x30');
             READOUTS.filter((r) => r.x < LEFT_W).forEach((r) => tile(cv, r, 0));
-            // the port's frame: BMW's speed-limit sign shows inside it
-            H.brackets(cv, LIMIT.x, LIMIT.y, LIMIT.w, LIMIT.h + 4, 14, 2, H.A(t.accent, 0.6));
-            H.mono(cv, 'LIMIT', LIMIT.x + LIMIT.w / 2, LIMIT.y - 8, 12, H.A(t.accent, 0.6), 'center');
         }));
         // right: the tach
-        cr.pixels(L.right, null, picture(W - RIGHT_X, CUT, (cv) => {
-            GridPanel._ground(cv, t, W - RIGHT_X, null, 'left');
+        cr.pixels(L.right, null, picture(W - RIGHT_X, CUT_MAX, (cv) => {
+            GridPanel._ground(cv, t, W - RIGHT_X, 'left', cut);
             const d = { cx: TA.cx - RIGHT_X, cy: TA.cy, R: TA.R }, k = top / 1000, txt = [];
             for (let i = 0; i <= k; i++) txt.push(String(i));
             this._dialFace(cv, t, d, { minor: k * 2, every: 2, text: txt, red: (i) => i * 1000 >= (v.fullRed || 7000) }, 'x1000 RPM', 'ENGINE // DME 0x12');
             READOUTS.filter((r) => r.x >= RIGHT_X).forEach((r) => tile(cv, r, RIGHT_X));
         }));
         // middle: the disc's body, the ties to the dials, the identity line
-        cr.pixels(L.mid, null, picture(MID.w, CUT, (cv) => {
+        cr.pixels(L.mid, null, picture(MID.w, CUT_MAX, (cv) => {
             const cx = DISC.cx - MID.x;
             H.discBody(cv, t, cx, DISC.cy, DISC.R);
             const e = LEFT_W - MID.x;
@@ -455,7 +458,7 @@ class GridPanel {
         const b = v.boost;
         this._uni(L.dial, 'u_boost', [b.zero, G.isNum(b.pos) ? b.pos : b.zero, G.isNum(b.peak) ? b.peak : -1, G.isNum(b.pos) ? 1 : 0]);
         // the dials
-        const sc = speedScale(v.mph), top = rpmTop(v.fullRed);
+        const sc = speedScale(v.mph), top = GridPanel.top(v);
         const spd = G.isNum(v.speed) ? Math.max(0, v.speed) : null;
         this._uni(L.spArc, 'u_val', [spd === null ? 0 : Math.round(G.clamp(spd / sc.max, 0, 1) * 1000) / 1000]);
         this._uni(L.taArc, 'u_val', [G.isNum(v.rpm) ? Math.round(G.clamp(v.rpm / top, 0, 1) * 1000) / 1000 : 0]);
@@ -476,11 +479,15 @@ class GridPanel {
         text('boost', b.text == null ? '--' : b.text, b.text == null ? dim : white);
         READOUTS.forEach((r) => {
             const x = v[r.key] || {};
-            const c = x.text == null ? dim : x.state === 'HOT' ? col3(t.crit) : x.state === 'COLD' ? col3(t.cold || t.accent) : white;
+            let c = x.text == null ? dim : x.state === 'HOT' ? col3(t.crit) : x.state === 'COLD' ? col3(t.cold || t.accent) : white;
+            if (r.key === 'fuel' && x.text != null && x.low) c = col3(x.empty ? t.crit : t.warn);
             text(r.key, x.text == null ? '--' : x.text, c);
             this._uni(L.bars[r.key], 'u_bar', [G.isNum(x.frac) ? Math.round(G.clamp(x.frac, 0, 1) * 100) / 100 : -1, r.segs]);
+            // the fuel bar turns warn / crit as a whole when the tank runs low (the bar's zones are for high values)
+            if (r.key === 'fuel') this._uni(L.bars.fuel, 'u_c', col3(x.empty ? t.crit : x.low ? t.warn : t.accent));
         });
+        this._uni(L.floor, 'u_cut', [GridPanel.cut(v)]);
     }
 }
 
-module.exports = { GridPanel, CUT, LIMIT, SP, TA, READOUTS, speedScale, rpmTop, ARC_FS, MIDFLOOR_FS, BIGCHARS, LETTERS };
+module.exports = { GridPanel, CUT, CUTS, CUT_MAX, FADE, SP, TA, READOUTS, speedScale, rpmTop, ARC_FS, MIDFLOOR_FS, BIGCHARS, LETTERS };

@@ -23,8 +23,10 @@ power and torque), with ethanol content added.
     target, 1920 x 720, over BMW's gauges and under the telltales): The Grid's own speedometer
     and tach (red zone with the warm-up redline, the gear and D / S / M), the identity disc with
     boost and the shift light over the light-grid floor, ethanol and intake under the speedometer,
-    oil, coolant and trans under the tach. BMW's bottom strip (range, clock, street, outside air)
-    and a port over the speed-limit sign stay BMW's; the warning lights are always on top. It
+    oil, coolant and trans under the tach, and a fuel gauge (the KOMBI's litres in the 65 l tank;
+    gallons with mph, orange under 15 %, red under 7 %). BMW's bottom strip (range, clock,
+    street, outside air) stays BMW's; Settings > Cluster bottom edge (Standard / Higher / Lower)
+    moves the line where The Grid stops; the warning lights are always on top. It
     shows only while the car's own speed comes in (the vehicle service answering, a real speed,
     no demo data); otherwise every layer is hidden and BMW's gauges come back after
     cluster-render's linger (3 s). Test: `node kit/tools/test_grid_panel.js`.

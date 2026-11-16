@@ -247,6 +247,8 @@ function signals(car, feed, cfg) {
             feed('de.bmw.infotainment.vehicle.TPMS', 'statusTyrePressure', { actualValuePressureTyreFLH: Math.round(press(0) * 10), actualValuePressureTyreFRH: Math.round(press(1) * 10), actualValuePressureTyreRLH: Math.round(press(2) * 10), actualValuePressureTyreRRH: Math.round(press(3) * 10) });
             feed('de.bmw.infotainment.vehicle.TPMS', 'statusTargetTyrePressure', { targetPressureTyreFLH: 363, targetPressureTyreFRH: 363, targetPressureTyreRLH: 392, targetPressureTyreRRH: 392 });
             feed('de.bmw.infotainment.vehicle.TPMS', 'statusTyreTemperature', { actualValueTemperatureTyreFLH: tF(c.tyreT[0]), actualValueTemperatureTyreFRH: tF(c.tyreT[1]), actualValueTemperatureTyreRLH: tF(c.tyreT[2]), actualValueTemperatureTyreRRH: tF(c.tyreT[3]) });
+            // the KOMBI's tank and range: litres in the 65 l tank, km at ~10.7 l/100 km
+            feed('de.bmw.infotainment.KombiIF', 'statusRangeTankStatus', { fluidLevelFuelTank: Math.round(c.fuel * 65), fluidLevelFuelTankLeftHand: Math.round(c.fuel * 32), fluidLevelFuelTankRightHand: Math.round(c.fuel * 33), range: Math.round(c.fuel * 65 / 10.7 * 100), mileageKilometre: 23817 + Math.round(c.dist / 1000) });
         }
     };
 }
