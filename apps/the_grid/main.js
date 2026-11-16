@@ -715,7 +715,7 @@ mgu.run({
             const rpm = G.smooth('grid|rpm', d.rpm), hot = G.isNum(d.rpm) && d.rpm >= red;
             const zone = rpmZone(t, red, max), rp = ramps(t);
             H.reactor(cv, t, cx, cy, R, {
-                a0: -135, a1: 135, f: G.isNum(rpm) ? rpm / max : null, zone, spin: G.isNum(rpm) ? rpm / max : 0,
+                a0: -135, a1: 135, f: G.isNum(rpm) ? rpm / max : null, zone,
                 segments: 56, ticks: Math.round(max / 250), major: 4, redFrom: red / max, trailRamp: hot ? rp.trailHot : rp.trail,
             });
             // the thousands, outside the scale

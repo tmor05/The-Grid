@@ -348,27 +348,24 @@ function panel(cv, t, x, y, w, h, label, opts) {
 /* ---------- reactor: the big rotating dial ---------- */
 /**
  * A JARVIS-style reactor dial. f = value 0..1 on the sweep a0..a1; zone(f) = colour of a
- * lit segment at f; spin = how fast the inner rings turn (0..1).
+ * lit segment at f. The inner rings and the orbiter run at a steady pace (the band shows the engine speed).
  */
 function reactor(cv, t, cx, cy, R, o) {
     const a0 = o.a0, a1 = o.a1, b = boot(o.delay || 0, 900), tn = now() / 1000;
-    const spin = o.spin || 0;
     const ac = t.accent;
     // core glow
     for (let i = 5; i >= 1; i--) cv.circle(cx, cy, R * (0.35 + i * 0.07), A(ac, 0.012 * i * b));
     cv.circle(cx, cy, R * 0.52, A(t.bg, 0.92));
     cv.arc(cx, cy, R * 0.52, R * 0.53, 0, 360, A(ac, 0.35 * b));
-    // inner counter-rotating tick ring
-    const rot1 = -(tn * (8 + spin * 50)) % 360;
+    // inner counter-rotating tick ring (a steady pace: the engine speed shows on the band, not here)
+    const rot1 = -(tn * 8) % 360;
     for (let i = 0; i < 60; i++) {
         const a = rot1 + i * 6;
         radial(cv, cx, cy, R * 0.56, R * (i % 5 === 0 ? 0.6 : 0.58), a, i % 5 === 0 ? 1.6 : 1, A(ac, (i % 5 === 0 ? 0.45 : 0.22) * b));
     }
-    // rotating bright segments
-    const rot2 = (tn * (14 + spin * 160)) % 360;
+    // the orbiter: one light running round the core at a steady pace, leaving a trail of pixels
     cv.arc(cx, cy, R * 0.63, R * 0.645, 0, 360, A(ac, 0.12 * b));
-    spinner(cv, cx, cy, R * 0.625, R * 0.66, rot2, [[0, 34], [120, 34], [240, 34]], A(ac, 0.75 * b));
-    spinner(cv, cx, cy, R * 0.61, R * 0.675, rot2, [[30, 4], [150, 4], [270, 4]], A(t.accent2 || ac, 0.9 * b));
+    orbiter(cv, t, cx, cy, R * 0.6375, tn, b);
     // main segmented band
     const sweep = a0 + (a1 - a0) * b;
     const n = o.segments || 54, lit = clamp(o.f || 0, 0, 1) * n * b;
@@ -406,6 +403,43 @@ function reactor(cv, t, cx, cy, R, o) {
         radial(cv, cx, cy, r0 - R * 0.07, R * 1.02, a, 3, '#ffffff');
     }
 }
+
+/*
+ * The orbiter: a single light (a diamond pointing the way it runs) circling at radius r at a
+ * steady ORBIT_DPS, whatever the engine does. It leaves pixels behind where it passed: the ring
+ * is cut into cells of CELL degrees, each cell it has crossed in the last TRAIL degrees holds a
+ * pixel at a fixed jitter of its own, so the pixels stay put as the head moves on and fade with
+ * their age, drifting off the line as they go (the trail breaks up into the dark).
+ */
+const ORBIT_DPS = 14, CELL = 1.5, TRAIL = 110;
+function orbiter(cv, t, cx, cy, r, tn, b) {
+    const ac = t.accent, a2 = t.accent2 || ac;
+    const head = (tn * ORBIT_DPS) % 360;
+    const j0 = Math.floor(head / CELL), n = Math.floor(TRAIL / CELL);
+    for (let k = 1; k <= n; k++) {
+        const j = j0 - k, cellA = j * CELL;
+        const age = (head - cellA) / TRAIL;                     // 0 at the head .. 1 at the tail's end
+        if (age <= 0 || age > 1) continue;
+        const h1 = hash(j * 1.37 + 0.5), h2 = hash(j * 7.91 + 2.1), h3 = hash(j * 3.17 + 9.4);
+        if (h3 < age * 0.75) continue;                          // the tail thins out
+        const drift = (h1 - 0.5) * (1.5 + age * 16);            // off the line as it ages
+        const p = pol(cx, cy, r + drift, cellA + (h2 - 0.5) * CELL * 0.8);
+        const s = Math.max(1.5, 5 - age * 3.4);
+        const c = h2 > 0.86 ? '#ffffff' : h2 > 0.7 ? a2 : ac;
+        cv.fillRect(Math.round(p[0] - s / 2), Math.round(p[1] - s / 2), s, s, A(c, Math.pow(1 - age, 1.5) * 0.95 * b));
+    }
+    // a short light line straight behind the head
+    for (let i = 0; i < 6; i++) cv.arc(cx, cy, r - 1.3, r + 1.3, head - (i + 1) * 2.6, head - i * 2.6, A(ac, (0.65 - i * 0.1) * b));
+    // the head: glow, a diamond along the way it runs, a white core
+    const hp = pol(cx, cy, r, head);
+    cv.circle(hp[0], hp[1], 15, A(ac, 0.10 * b));
+    cv.circle(hp[0], hp[1], 8, A(ac, 0.24 * b));
+    const tip = pol(cx, cy, r, head + 4.2), tail = pol(cx, cy, r, head - 4.2), o = pol(cx, cy, r + 6, head), inn = pol(cx, cy, r - 6, head);
+    cv.quad([tip, o, tail, inn], A(ac, b));
+    const tip2 = pol(cx, cy, r, head + 2.2), tail2 = pol(cx, cy, r, head - 2.2), o2 = pol(cx, cy, r + 2.6, head), i2 = pol(cx, cy, r - 2.6, head);
+    cv.quad([tip2, o2, tail2, i2], A('#ffffff', 0.95 * b));
+}
+function hash(x) { const h = Math.sin(x * 12.9898) * 43758.5453; return h - Math.floor(h); }
 
 /* ---------- identity discs: the speedometer's backdrop, one per identity ---------- */
 /** Points of a regular n-gon (closed). */

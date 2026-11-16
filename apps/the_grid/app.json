@@ -2,7 +2,7 @@
   "id": "the_grid",
   "title": "The Grid",
   "description": "The Grid: a Tron-style HUD for the BMW MGU (iDrive 7). Drive (tach, identity-disc speedometer, boost, ethanol) over a light-grid floor that runs with your speed, Vitals, Track timers, Chassis (tyres, M xDrive split), and Engine: exhaust flap, MHD / BM3 map switching with your own map names, and Max Cooling (Engine Config's car-tested commands, off until armed in Settings). Also over the whole instrument cluster (its own speedometer, tach and gear; BMW's warning lights stay on top) and in the head-up display",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "vendor": "custom",
   "loggingId": "OAB7",
   "iconGlyph": "GRD",
