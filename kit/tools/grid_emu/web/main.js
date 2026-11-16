@@ -15,6 +15,7 @@ const clusterd = require('./clusterd');
 const host = require('./host');
 const { Car, MAPS, signals, ecus } = require('./sim');
 const stock = require('./stock');
+const sfxOut = require('./sound_out');
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -71,6 +72,11 @@ async function boot() {
     };
     const hu = host.headUnit({ log, onSoft });
     globalThis.__GRID_HU__ = hu;
+    // the app ships Sounds Off; the emulator starts On until it is changed here (the saved choice wins)
+    try {
+        const saved = fs.existsSync(hu.settings.file) ? JSON.parse(fs.readFileSync(hu.settings.file, 'utf8')) : {};
+        if (!('sounds' in saved)) hu.settings.values.sounds = 'on';
+    } catch (e) { hu.settings.values.sounds = 'on'; }
     const car = new Car();
     globalThis.__GRID_CAR__ = car;
     const cfg = hu.spec.config || {};
@@ -244,6 +250,71 @@ async function boot() {
 
     /* ---------- the app's settings from the page (the same calls as its Settings tab) ---------- */
     $$('#ids button').forEach((b) => b.addEventListener('click', () => hu.settings.set('theme', b.dataset.id)));
+
+    /* ---------- sounds: the app's Sounds setting, a sound board, volume (sound_out.js plays them) ---------- */
+    const SFX_LABEL = { boot_sam: 'Sam', boot_flynn: 'Flynn', boot_rinzler: 'Rinzler', boot_ares: 'Ares', tap: 'Tap', map: 'Map',
+        flap_open: 'Flap open', flap_close: 'Flap closed', flap_oem: 'Flap OEM', cool_on: 'Cooling on', cool_off: 'Cooling off', refused: 'Refused',
+        warn: 'Warning', run_go: 'Run start', run_done: 'Run end', best: 'New best' };
+    const SFX_GROUPS = [['Opening · per identity', /^boot_/], ['Taps · Engine page', /^(tap|map|flap_|cool_|refused)$/], ['Warnings', /^warn$/],
+        ['Track · timed runs', /^(run_|best)/]];
+    const sfxInfo = {};
+    sfxOut.list.forEach((x) => { sfxInfo[x.name] = x; });
+    const board = $('#sfxboard'), sfxBtn = {};
+    SFX_GROUPS.forEach(([title, re]) => {
+        const g = document.createElement('div'); g.className = 'grp';
+        const h = document.createElement('b'); h.textContent = title; g.appendChild(h);
+        const row = document.createElement('div'); row.className = 'btns';
+        sfxOut.list.filter((x) => re.test(x.name)).forEach((x) => {
+            const b = document.createElement('button');
+            b.textContent = SFX_LABEL[x.name] || x.name;
+            b.title = x.when;
+            b.addEventListener('click', () => { sfxFrom = 'board'; sfxOut.unlock().then(() => { sfxOut.play(x.name); sfxFrom = null; }); });
+            sfxBtn[x.name] = b; row.appendChild(b);
+        });
+        g.appendChild(row); board.appendChild(g);
+    });
+    let sfxFrom = null;
+    const sfxNow = $('#sfxnow');
+    sfxOut.onPlay((name, heard) => {
+        const x = sfxInfo[name] || { when: '' }, label = SFX_LABEL[name] || name;
+        const b = sfxBtn[name];
+        if (b) { b.classList.add('hit'); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('hit'), 450); }
+        sfxNow.classList.toggle('wait', !heard);
+        sfxNow.textContent = (sfxFrom === 'board' ? '▶ ' : '▶ The app: ') + label + ' · ' + x.when + (heard ? '' : sfxOut.running() ? ' (muted)' : ' (not heard: click the page once)');
+        if (sfxFrom !== 'board') addLog('info', 'sound: ' + name + (heard ? '' : ' (not heard)'));
+    });
+    $$('#sfxset button').forEach((b) => b.addEventListener('click', () => { sfxOut.unlock().then(() => hu.settings.set('sounds', b.dataset.v)); }));
+    const vol = $('#sfxvol');
+    vol.addEventListener('input', () => { sfxOut.setVolume(vol.value / 100); $('#sfxvolv').textContent = vol.value + '%'; });
+    /** Mute / unmute; the first click only turns sound on (and with `hello`, plays the identity's opening). */
+    let runAtDown = false;                       // was sound on before this click's pointerdown turned it on?
+    const soundButton = (hello) => {
+        if (runAtDown && sfxOut.running()) { sfxOut.setMuted(!sfxOut.muted); return; }
+        sfxOut.unlock().then((ok) => {
+            if (!ok) return;
+            sfxOut.setMuted(false);
+            if (hello) { sfxFrom = 'board'; sfxOut.play('boot_' + (hu.settings.get('theme') || 'sam')); sfxFrom = null; }
+        });
+    };
+    $('#sfxmute').addEventListener('click', () => soundButton(false));
+    $('#sfxon').addEventListener('click', () => soundButton(true));
+    // browsers start audio only after a click or a key on the page
+    const unlockOnce = () => { if (!sfxOut.running()) sfxOut.unlock().then((ok) => { if (ok && !sfxNow.dataset.ok) { sfxNow.dataset.ok = '1'; sfxNow.classList.remove('wait'); sfxNow.textContent = 'Sound on. Click a sound to hear it.'; } }); };
+    document.addEventListener('pointerdown', () => { runAtDown = sfxOut.running(); unlockOnce(); }, true);
+    document.addEventListener('keydown', () => { runAtDown = sfxOut.running(); unlockOnce(); }, true);
+    function sfxPanel() {
+        const v = hu.settings.get('sounds') && hu.settings.get('sounds') !== 'off' ? 'on' : 'off';
+        $$('#sfxset button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+        const st = !sfxOut.running() ? 'off' : sfxOut.muted ? 'muted' : 'live';
+        const btn = $('#sfxon');
+        if (btn.dataset.st !== st) {
+            btn.dataset.st = st; btn.className = st;
+            btn.title = st === 'off' ? 'Sound: click to turn it on (browsers need a click first)' : st === 'muted' ? 'Sound muted: click to unmute' : 'Sound on: click to mute';
+            $('#sfxmute').textContent = st === 'muted' ? 'unmute' : 'mute';
+        }
+    }
+    setInterval(sfxPanel, 250);
+    sfxPanel();
     $$('#views button').forEach((b) => b.addEventListener('click', () => {
         document.body.dataset.view = b.dataset.view;
         $$('#views button').forEach((x) => x.classList.toggle('on', x === b));

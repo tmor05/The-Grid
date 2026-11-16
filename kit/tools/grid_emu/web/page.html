@@ -15,6 +15,7 @@
   <div id="ids" aria-label="Identity">
     <button data-id="sam" style="--c:#67e8ff">Sam</button><button data-id="flynn" style="--c:#eef6ff">Flynn</button><button data-id="rinzler" style="--c:#ff9d1c">Rinzler</button><button data-id="ares" style="--c:#ff3348">Ares</button>
   </div>
+  <button id="sfxon" class="off" title="Sound: the browser needs a click first"><svg viewBox="0 0 24 24"><path d="M3.5 9.5h4l5-4v13l-5-4h-4z" fill="currentColor"/><path class="w1" d="M15.5 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="w2" d="M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="x" d="M16 9.5l5 5m0-5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>SOUND</span></button>
 </header>
 
 <div id="wrap">
@@ -61,6 +62,15 @@
     <label class="slider"><span>Steering <small>← →</small></span><input type="range" id="steer" min="-100" max="100" value="0"><output id="steerv">0</output></label>
     <div class="readout" id="truth"></div>
     <div class="keys"><kbd>↑</kbd> gas <kbd>↓</kbd>/<kbd>Space</kbd> brake <kbd>←</kbd><kbd>→</kbd> steer <kbd>P</kbd><kbd>R</kbd><kbd>N</kbd><kbd>D</kbd><kbd>M</kbd> gears <kbd>Q</kbd><kbd>E</kbd> paddles</div>
+  </section>
+
+  <section class="box" id="sfxbox">
+    <h2>Sounds <button id="sfxmute" class="mini">mute</button></h2>
+    <div class="sel wide two" id="sfxset"><button data-v="off">Off</button><button data-v="on">On</button></div>
+    <label class="slider"><span>Volume</span><input type="range" id="sfxvol" min="0" max="100" value="80"><output id="sfxvolv">80%</output></label>
+    <div class="now" id="sfxnow">Click anywhere on the page once: browsers play sound only after a click.</div>
+    <div id="sfxboard"></div>
+    <p class="note">The app's <b>Sounds</b> setting: the identity's opening, one tap sound for every button on every screen, the Engine page's answers, warnings and Track runs. No throttle or shift sounds. The app ships <b>Off</b>; the emulator starts On. Click a sound to hear it; it lights up when the app plays it. <b>Use headphones or speakers with real bass:</b> most of these sit below 120 Hz, and laptop speakers drop it. <b>Not on the car yet:</b> how the head unit takes a sound from an app is checked on the car first.</p>
   </section>
 
   <section class="box">

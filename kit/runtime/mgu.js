@@ -543,6 +543,8 @@ async function runInner(impl) {
          * screen, fn(i, true) when that tap or press closed a sheet (Settings) over the page.
          */
         onTab(fn) { display.onTab = fn; },
+        /** onPress(fn): fn(kind) on every tap or controller press where the kit runs the screen: 'tab', 'button', 'bar', 'sheet'. */
+        onPress(fn) { display.onPress = fn; },
         /** onTap(fn): fn(x, y) for a tap on the page (app drawing px), where the kit runs the screen. */
         onTap(fn) { display.onTap = fn; },
         /** Show a sheet (sheet.js) over the page; false where it can't be (software path, other renderers). */

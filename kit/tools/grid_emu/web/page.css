@@ -113,3 +113,24 @@ body[data-view="cockpit"] #d-hud canvas { max-height: 34vh; object-fit: contain;
   #panel { position: static; max-height: none; }
   #ids { margin-left: 0; }
 }
+
+/* sounds */
+#sfxon { display: flex; align-items: center; gap: 6px; font: 11px var(--mono); letter-spacing: .12em; padding: 5px 10px; margin-left: 10px; }
+#sfxon svg { width: 18px; height: 18px; }
+#sfxon .x { display: none; }
+#sfxon.off, #sfxon.muted { color: var(--dim); }
+#sfxon.off .w1, #sfxon.off .w2, #sfxon.muted .w1, #sfxon.muted .w2 { display: none; }
+#sfxon.off .x, #sfxon.muted .x { display: inline; }
+#sfxon.off { border-color: var(--warn, #ffb347); color: var(--warn, #ffb347); animation: sfxpulse 1.6s ease-in-out infinite; }
+#sfxon.live { border-color: var(--acc); color: var(--acc2); box-shadow: 0 0 10px rgba(103, 232, 255, .3); }
+@keyframes sfxpulse { 50% { box-shadow: 0 0 12px rgba(255, 179, 71, .45); } }
+#sfxbox .now { font: 12px var(--mono); color: var(--acc2); margin: 8px 0 6px; min-height: 2.6em; line-height: 1.3; }
+#sfxbox .now.wait { color: var(--warn, #ffb347); }
+#sfxboard .grp { margin-top: 8px; }
+#sfxboard .grp > b { display: block; font: 10px var(--head); letter-spacing: .18em; color: var(--dim); text-transform: uppercase; margin-bottom: 4px; }
+#sfxboard .btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+#sfxboard button { font: 11px var(--mono); padding: 6px 2px; position: relative; transition: box-shadow .15s, background .15s; }
+#sfxboard button.full::after { content: 'F'; position: absolute; top: 1px; right: 3px; font: 8px var(--mono); color: var(--dim); }
+#sfxboard button.hit { background: #06303d; border-color: var(--acc); box-shadow: 0 0 14px rgba(103, 232, 255, .55); color: var(--acc2); }
+.sel.wide.two { grid-template-columns: repeat(2, 1fr); }
+

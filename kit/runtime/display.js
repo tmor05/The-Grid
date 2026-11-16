@@ -223,8 +223,13 @@ class Display {
         const sel = this.sheet && this.sheet.settings ? settings : this.sheet ? -1 : base.sel;
         return { tabs, sel, badges: base.badges || [], settings };
     }
+    /** Something was pressed (a tap or the controller's press): tell the app (ctx.onPress), e.g. for a tap sound. */
+    _pressed(kind) {
+        if (this.onPress) try { this.onPress(kind); } catch (e) { this.log.error('press', e); }
+    }
     /** Open header tab i: the app's page, or the settings (Settings tab). */
     _openTab(i) {
+        this._pressed('tab');
         const tl = this._tabList();
         if (i === tl.settings) { if (!(this.sheet && this.sheet.settings)) this._click('BTN_SETTINGS'); return; }
         const closed = !!this.sheet;
@@ -334,7 +339,7 @@ class Display {
                 return;
             }
             if (d) { this.sheet.move(d); this._paintSheet(); }
-            if (press) this._sheetResult(() => this.sheet.press());
+            if (press) { this._pressed('sheet'); this._sheetResult(() => this.sheet.press()); }
             if (tilt === 'W') this._sheetResult(() => this.sheet.back());
             return;
         }
@@ -358,8 +363,8 @@ class Display {
         if (press && i >= 0) {
             const p = ring[i];
             if (p.tab != null) this._openTab(p.tab);
-            else if (p.tgt) { try { Promise.resolve(p.tgt.run()).catch((e) => this.log.error('target', e)); } catch (e) { this.log.error('target', e); } this.pressed = p.k; this.pressedT = Date.now(); this._repaint(); }
-            else if (p.bar) this._click(p.bar);
+            else if (p.tgt) { this._pressed('button'); try { Promise.resolve(p.tgt.run()).catch((e) => this.log.error('target', e)); } catch (e) { this.log.error('target', e); } this.pressed = p.k; this.pressedT = Date.now(); this._repaint(); }
+            else if (p.bar) { this._pressed('bar'); this._click(p.bar); }
         }
     }
     /** A scrolling page (ctx.onScroll) moved by dy logical px; false when it was at its end already. */
@@ -428,6 +433,7 @@ class Display {
                 else {
                     this.pressed = key; this.pressedT = Date.now(); this._repaint();
                     setTimeout(() => this._repaint(), 320);
+                    this._pressed('button');
                     try { Promise.resolve(tgt.run()).catch((e) => this.log.error('target', e)); } catch (e) { this.log.error('target', e); }
                 }
                 return;
@@ -447,10 +453,10 @@ class Display {
                 const was = this.ownDown;
                 this.ownDown = null;
                 if (this.dragging) { this.dragging = false; if (this.sheet && this.sheet.release) this.sheet.release(); return; }
-                if (bar && was === key) { this._click(bar.id); return; }
+                if (bar && was === key) { this._pressed('bar'); this._click(bar.id); return; }
                 if (this.sheet) {
                     const i = (this.sheetTargets || []).findIndex(inside);
-                    if (i >= 0 && was === key) this._sheetResult(() => this.sheetTargets[i].act());
+                    if (i >= 0 && was === key) { this._pressed('sheet'); this._sheetResult(() => this.sheetTargets[i].act()); }
                     return;
                 }
                 if (was && was.indexOf('bar:') === 0) return;
@@ -465,7 +471,7 @@ class Display {
         else if (phase === 3) {
             const i = this.tabDown;
             this.tabDown = -1;
-            if (at && at.i === i && this.onTab) Promise.resolve().then(() => this.onTab(i)).catch((e) => this.log.error('tab', e));
+            if (at && at.i === i && this.onTab) { this._pressed('tab'); Promise.resolve().then(() => this.onTab(i)).catch((e) => this.log.error('tab', e)); }
         }
     }
 

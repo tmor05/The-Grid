@@ -46,6 +46,22 @@ fs.readdirSync(fontDir).filter((f) => /\.json$/.test(f) && !/^(cjk|korean|cyrill
     files['/app/kit/fonts/' + f] = fs.readFileSync(path.join(fontDir, f), 'utf8');
 });
 fs.writeFileSync(path.join(GEN, 'files.js'), 'module.exports = ' + JSON.stringify(files) + ';\n');
+// the app's sounds (apps/the_grid/sounds, made by kit/tools/grid_sfx.js): Opus when ffmpeg is here, else the WAVs
+const SFXDIR = path.join(ROOT, 'apps', 'the_grid', 'sounds');
+const sfxDefs = require(path.join(ROOT, 'kit', 'tools', 'grid_sfx.js')).SOUNDS;
+let sfxFormat = 'opus';
+try { execFileSync('ffmpeg', ['-hide_banner', '-version'], { stdio: 'ignore' }); } catch (e) { sfxFormat = 'wav'; }
+const sfx = { format: sfxFormat, list: [], sounds: {} };
+Object.keys(sfxDefs).forEach((name) => {
+    const wavFile = path.join(SFXDIR, name + '.wav');
+    if (!fs.existsSync(wavFile)) throw new Error('missing ' + wavFile + ' (run node kit/tools/grid_sfx.js)');
+    const data = sfxFormat === 'opus'
+        ? execFileSync('ffmpeg', ['-v', 'error', '-i', wavFile, '-c:a', 'libopus', '-b:a', '128k', '-f', 'ogg', 'pipe:1'], { maxBuffer: 1 << 26 })
+        : fs.readFileSync(wavFile);
+    sfx.list.push({ name, when: sfxDefs[name].when });
+    sfx.sounds[name] = { data: data.toString('base64') };
+});
+fs.writeFileSync(path.join(GEN, 'sfx.js'), 'module.exports = ' + JSON.stringify(sfx) + ';\n');
 fs.writeFileSync(path.join(GEN, 'wasm.js'), 'module.exports = ' + JSON.stringify(fs.readFileSync(path.join(GFXDIR, 'mgu-gfx-wasm.wasm')).toString('base64')) + ';\n');
 const spec = JSON.parse(fs.readFileSync(path.join(APPDIR, 'kit', 'app-spec.json'), 'utf8'));
 let rev = '';
@@ -68,6 +84,8 @@ const plugin = {
         b.onResolve({ filter: /^GFXDIR\// }, (a) => ({ path: path.join(GFXDIR, a.path.slice(7)) }));
         // the app's require('./kit/mgu') is the page's head unit
         b.onResolve({ filter: /kit[\\/]mgu$/ }, (a) => (a.importer.indexOf(APPDIR) === 0 ? { path: path.join(WEB, 'mgu-stub.js') } : undefined));
+        // the app's sound output (nothing on the car yet) is the page's WebAudio player
+        b.onResolve({ filter: /(^|[\\/])sound_out(\.js)?$/ }, (a) => (a.importer.indexOf(APPDIR) === 0 ? { path: path.join(WEB, 'sound_out.js') } : undefined));
         // Node's __dirname / __filename for the app's modules, as on the car (/app = source/javascript)
         b.onLoad({ filter: /\.js$/ }, (a) => {
             if (a.path.indexOf(APPDIR) !== 0) return undefined;

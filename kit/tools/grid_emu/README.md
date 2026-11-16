@@ -22,6 +22,7 @@ nothing talks to a car.
 | BMW's gauges, map view, HUD speed, windshield | **Drawn by the page** (`web/stock.js`), plain and grey on purpose, so the app's part stands out. No BMW marks. |
 | The car | **Simulated** (`web/sim.js`): an X4 M Competition (S58, ZF 8HP, M xDrive) with a converter, traction, aero, spool, heat soak and warm-up, sent as the raw SOME/IP values the app subscribes to (scaled by `app.json` `config.scaling`, in a US car's units). |
 | The DME, gearbox and transfer case | **Simulated** behind the diagnostic link: the F4xx PIDs and BMW DIDs of `config.dme`, OBD services 01 and 06 (misfires), the regulated exhaust flap (2F 611E, 22 651E; 2F 60FD refused as on the S58), MHD's 2F 01 / 02 / 03. The page lists every command that would change something on a car, with the simulated answer. |
+| The Grid's sounds | **Real files, the page's player.** The app's own trigger code (`sound.js`) and WAVs (`apps/the_grid/sounds`), played with WebAudio (`web/sound_out.js` stands in for the app's `sound_out.js`, which plays nothing on the car yet). Embedded as Opus when the build has ffmpeg. The page's Sounds box sets the app's setting (Off / On; the emulator starts On, the app ships Off) and has a board to hear each one. Every press the kit handles (tabs, buttons, the bar, the Settings sheet) plays the app's tap. Browsers play sound only after a click on the page. |
 
 The car and DME numbers are a model (a launch on the simulated "map 1" runs 0-60 in about 3.3 s and
 the quarter in about 11.8 s at 116 mph), not your car.

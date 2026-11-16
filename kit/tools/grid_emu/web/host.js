@@ -187,6 +187,7 @@ function headUnit(o) {
         ui, settings, spec: SPEC, dataDir: DATA, log, display,
         canvas: (w, h) => display.canvas(w, h),
         onTab(fn) { display.onTab = fn; },
+        onPress(fn) { display.onPress = fn; },
         onTap(fn) { display.onTap = fn; },
         sheet: (sh) => display.openSheet(sh),
         hideButton(id) { display.hideButton(id); },

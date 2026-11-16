@@ -83,6 +83,7 @@ function headUnit(stage, o) {
         ui, settings, spec, dataDir: out, log, display,
         canvas: (w, h) => display.canvas(w, h),
         onTab(fn) { display.onTab = fn; },
+        onPress(fn) { display.onPress = fn; },
         // as kit/mgu.js: the kit's own screen (tabs, page buttons, sheets, scrolling) where the renderer has the app
         onTap(fn) { display.onTap = fn; },
         sheet: (sh) => display.openSheet(sh),

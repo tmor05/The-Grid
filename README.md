@@ -30,6 +30,18 @@ power and torque), with ethanol content added.
   programme (D / S / M), boost and oil either side, and a strip of the grid along the bottom that
   runs with your speed (Settings > HUD grid strip). It gives way to the HMI's HUD lists and never
   covers BMW's own HUD content. Not yet seen on this car: check it parked first.
+- **Sounds** (Settings > Sounds: Off / On, ships Off; [`sound.js`](apps/the_grid/sound.js)): dark
+  sci-fi cinema with heavy bass, every sound built from one: Rinzler's opening (a distorted tritone
+  braam with a ring-modulated growl, a reversed metallic suck, an impact with a sub drop, scraping
+  metal). An opening per identity; **one tap sound for every button on every screen** (the kit's
+  display reports each press through `ctx.onPress`: tabs, the app's buttons, the bar, the Settings
+  sheet, by touch or the controller); the Engine page's answers (map, flap, Max Cooling, refused);
+  warnings (oil at the *Oil temp warning* setting, coolant, gearbox, a low tyre); the Track page's
+  timed runs. No throttle or shift sounds. The sounds are original WAVs made by
+  `node kit/tools/grid_sfx.js` into `apps/the_grid/sounds`. **Heard in the emulator only so far:**
+  how the head unit lets an app add a sound to the car's audio is checked on the car first
+  (read-only), then [`sound_out.js`](apps/the_grid/sound_out.js) plays them that way; until then it
+  plays nothing.
 - **Emulator:** `node kit/tools/grid_emu/build.js` makes one web page that runs The Grid's own code
   (the staged build the Store compiles) on the car's GPU draw engine (WebAssembly), with the cluster
   and the HUD drawn from what the app sends cluster-render and a simulated X4 M Competition and DME

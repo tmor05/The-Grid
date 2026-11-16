@@ -30,6 +30,7 @@ const { Controller } = require('./controller');
 const { TuneControl } = require('./tune');
 const { GridCluster } = require('./cluster');
 const { GridHud } = require('./headup');
+const { GridSound } = require('./sound');
 
 const W = 1600, HGT = 520;
 const PAGES = ['drive', 'vitals', 'track', 'engine', 'chassis'];
@@ -574,6 +575,7 @@ mgu.run({
         /* ---------- drawing: The Grid ---------- */
         let page = PAGES.indexOf(settings.get('page'));
         if (page < 0) page = 0;
+        const sfx = new GridSound(ctx, { theme: () => settings.get('theme') });
         const A0 = -135, A1 = 135;                     // dial sweep in degrees, 0 = up
 
         /** { letter, num, est } for the gear readout, or null without any gear information. */
@@ -877,12 +879,14 @@ mgu.run({
         const runs = { state: 'stop', t0: 0, dist: 0, top: 0, cur: {}, last: {}, best: {} };
         try { Object.assign(runs.best, JSON.parse(fs.readFileSync(RUNS_FILE, 'utf8'))); } catch (e) { /* no runs yet */ }
         function finishRun() {
+            const real = G.isNum(runs.cur.t60) || G.isNum(runs.cur.tq);
             runs.last = Object.assign({}, runs.cur);
             const b = runs.best, c = runs.cur;
             let changed = false;
             if (G.isNum(c.t60) && !(b.t60 <= c.t60)) { b.t60 = c.t60; changed = true; }
             if (G.isNum(c.tq) && !(b.tq <= c.tq)) { b.tq = c.tq; b.trap = c.trap; changed = true; }
             if (changed) fs.writeFile(RUNS_FILE, JSON.stringify(b), () => {});
+            if (real && PAGES[page] === 'track') sfx.play(changed ? 'best' : 'run_done');
         }
         let runT = Date.now();
         setInterval(() => {
@@ -893,7 +897,10 @@ mgu.run({
             if (!G.isNum(v)) return;
             const target = settings.get('speedUnit') === 'mph' ? 96.5606 : 100;      // 60 mph or 100 km/h, in km/h
             if (v < 1) { if (runs.state === 'run') finishRun(); runs.state = 'armed'; return; }
-            if (runs.state === 'armed' && v >= 1.5) { runs.state = 'run'; runs.t0 = now; runs.dist = 0; runs.top = v; runs.cur = {}; }
+            if (runs.state === 'armed' && v >= 1.5) {
+                runs.state = 'run'; runs.t0 = now; runs.dist = 0; runs.top = v; runs.cur = {};
+                if (PAGES[page] === 'track') sfx.play('run_go');
+            }
             if (runs.state !== 'run') return;
             runs.dist += (v / 3.6) * dt;
             runs.top = Math.max(runs.top, v);
@@ -1045,8 +1052,18 @@ mgu.run({
         const MAP_NAMES = ((ctx.spec.config && ctx.spec.config.mapNames) || []).slice(0, 4);
         const mapName = (n) => MAP_NAMES[n - 1] || 'Map ' + n;
         let exAngle = 0.18;
-        const exPress = (mode) => () => Promise.resolve(exhaust.setMode(mode)).catch((e) => log.error('exhaust', e));
-        const tuneAct = (fn) => () => Promise.resolve(fn()).catch((e) => log.error('tune', e));
+        const FLAP_SFX = { OPEN: 'flap_open', CLOSED: 'flap_close', OEM: 'flap_oem' };
+        const exPress = (mode) => () => Promise.resolve(exhaust.setMode(mode)).then(() => {
+            const v = exhaust.view();
+            if (v.busy) return;
+            if (v.accepted) sfx.play(FLAP_SFX[mode] || 'flap_oem'); else if (v.error) sfx.play('refused');
+        }).catch((e) => log.error('exhaust', e));
+        /** A tune button; ok -> the sound when the DME took it (the note says), a refusal otherwise. */
+        const tuneAct = (fn, ok) => () => Promise.resolve(fn()).then(() => {
+            const m = tune.view();
+            if (m.busy) return;
+            if (m.noteType === 'go') sfx.play(ok); else if (m.noteType === 'warn') sfx.play('refused');
+        }).catch((e) => log.error('tune', e));
         (async () => {
             await exhaust.start();               // read-only: finds the DME; disarmed sends nothing at all
             await tune.start(exhaust.link);      // nothing at all while "Tuning software" is Off
@@ -1141,7 +1158,7 @@ mgu.run({
             const mw = (wc - 50 - 3 * 12) / 4;
             [1, 2, 3, 4].forEach((n, i) => {
                 const nm = mapName(n), sub = nm === 'Map ' + n ? '' : nm.toUpperCase().slice(0, 14);
-                H.button(cv, t, xc + 25 + i * (mw + 12), by, mw, 54, 'MAP ' + n, tuner === 'off' ? null : tuneAct(() => tune.setMap(n)),
+                H.button(cv, t, xc + 25 + i * (mw + 12), by, mw, 54, 'MAP ' + n, tuner === 'off' ? null : tuneAct(() => tune.setMap(n), 'map'),
                     { on: m.map === n, busy: m.busy || tuner === 'off', key: 'grid_map' + n, sub });
             });
 
@@ -1158,7 +1175,7 @@ mgu.run({
             H.mono(cv, 'H2O ' + (G.isNum(d.coolant) ? G.fmt(T(d.coolant), 0) + tu : '--') + '   OIL ' + (G.isNum(d.oil) ? G.fmt(T(d.oil), 0) + tu : '--'),
                 xr + wl / 2, y0 + 304, 13, dimC(t, 0.5), 'center');
             [['ON', true], ['OFF', false]].forEach(([label, val], i) => {
-                H.button(cv, t, xr + 52 + i * 194, by, 172, 54, label, mhd ? tuneAct(() => tune.setCooling(val)) : null,
+                H.button(cv, t, xr + 52 + i * 194, by, 172, 54, label, mhd ? tuneAct(() => tune.setCooling(val), val ? 'cool_on' : 'cool_off') : null,
                     { on: mhd && m.cooling === label, busy: m.busy || !mhd, key: 'grid_cool_' + label });
             });
         }
@@ -1200,6 +1217,12 @@ mgu.run({
         // the shift pulse runs whatever the centre screen shows (the cluster and the HUD play it too)
         setInterval(() => { try { const d = data(); watchShift(d, effRed(d)); } catch (e) { /* no data yet */ } }, 50);
 
+        /* ---------- sounds (sound.js; setting "Sounds", ships Off) ---------- */
+        // the tap: every press the kit sees (tabs, buttons, the bar, the Settings sheet; touch or controller),
+        // plus page changes and Settings choices made in BMW's own lists (one sound: repeats within 60 ms drop)
+        if (ctx.onPress) ctx.onPress(() => sfx.tap());
+        setInterval(() => { try { if (!usingDemo()) sfx.watchWarnings(data()); } catch (e) { /* no data yet */ } }, 1000);
+
         /* ---------- frame + loop ---------- */
         function header(cv, t) {
             G.frame(cv, t, ['Drive', 'Vitals', 'Track', 'Engine', 'Chassis'], page, [usingDemo() && { text: 'DEMO' }]);
@@ -1209,11 +1232,11 @@ mgu.run({
             const cv = ctx.canvas(W, HGT).clear(t.bg);
             [drawDrive, drawVitals, drawTrack, drawEngine, drawChassis][page](cv, t, d);
             header(cv, t);
-            if (!render.n) { render.n = 1; log.info('first frame drawn'); }
+            if (!render.n) { render.n = 1; log.info('first frame drawn'); sfx.boot(); }
             await ui.image('MAIN_GFX', cv);
         }
 
-        const go = (p) => { if (p !== page) H.reboot(); page = p; return render(); };
+        const go = (p) => { sfx.tap(); if (p !== page) H.reboot(); page = p; return render(); };
         ui.onClick('BTN_PAGE', () => go((page + 1) % PAGES.length));
         ui.onClick('BTN_PREV', () => go((page + PAGES.length - 1) % PAGES.length));
         ctx.onTab((i) => go(i));
@@ -1228,6 +1251,7 @@ mgu.run({
             if (k === 'arm') exhaust.refresh().catch((e) => log.error('exhaust', e));
             if (k === 'tuner') exhaust.refresh().then(() => tune.refresh()).catch((e) => log.error('tune', e));
             if (k === 'page') { page = Math.max(0, PAGES.indexOf(settings.get('page'))); H.reboot(); }
+            if (k === 'theme' || k === 'sounds') sfx.boot(); else sfx.tap();   // a Settings choice is a tap too
         });
         log.info('first render');
         const t0 = Date.now();
