@@ -95,7 +95,7 @@ async function boot() {
         requestAnimationFrame(frame);
         let dt = Math.min(0.06, (now - last) / 1000);
         last = now;
-        if (ctl.hold) { car.settle(); sigAcc += dt; while (sigAcc > 0.04) { feed(); sigAcc -= 0.04; } cl.draw(); stock.cluster(clv, car, mapCv, { gridOn: (cl.count().map || 0) > 0, hu }); stock.hud(hv, car, hudCv, { gridOn: (cl.count().hud || 0) > 0, hu }); return; }
+        if (ctl.hold) { uiAcc += dt; if (uiAcc > 0.1) { uiAcc = 0; panel(); } car.settle(); sigAcc += dt; while (sigAcc > 0.04) { feed(); sigAcc -= 0.04; } cl.draw(); stock.cluster(clv, car, mapCv, { gridOn: (cl.count().map || 0) > 0, hu }); stock.hud(hv, car, hudCv, { gridOn: (cl.count().hud || 0) > 0, hu }); return; }
         // the driver: autopilot or the keys / pads
         const manualInput = input.gas || input.brake || input.left || input.right;
         if (manualInput && pilot.on()) pilot.stop('you took over');
