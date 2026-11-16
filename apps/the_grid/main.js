@@ -32,6 +32,7 @@ const { GridCluster } = require('./cluster');
 const { GridPanel } = require('./panel');
 const { GridHud } = require('./headup');
 const { GridSound } = require('./sound');
+const { GridVolume } = require('./volume');
 
 const W = 1600, HGT = 520;
 const PAGES = ['drive', 'vitals', 'track', 'engine', 'chassis'];
@@ -623,6 +624,9 @@ mgu.run({
         let page = PAGES.indexOf(settings.get('page'));
         if (page < 0) page = 0;
         const sfx = new GridSound(ctx, { theme: () => settings.get('theme') });
+        // the car's volume, drawn by The Grid: BMW's own volume pop-up is under The Grid's layer (volume.js)
+        const vol = new GridVolume(ctx, { on: () => settings.get('volumeBar') !== 'off' });
+        vol.start();
         const A0 = -135, A1 = 135;                     // dial sweep in degrees, 0 = up
 
         /** { letter, num, est } for the gear readout, or null without any gear information. */
@@ -1318,6 +1322,7 @@ mgu.run({
             const cv = ctx.canvas(W, HGT).clear(t.bg);
             [drawDrive, drawVitals, drawTrack, drawEngine, drawChassis][page](cv, t, d);
             header(cv, t);
+            if (settings.get('volumeBar') !== 'off') vol.draw(cv, t, W);
             if (!render.n) { render.n = 1; log.info('first frame drawn'); sfx.boot(); }
             await ui.image('MAIN_GFX', cv);
         }

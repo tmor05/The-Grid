@@ -60,6 +60,14 @@ power and torque), with a configurable fuel tile (HPFP rail pressure or flex eth
   how the head unit lets an app add a sound to the car's audio is checked on the car first
   (read-only), then [`sound_out.js`](apps/the_grid/sound_out.js) plays them that way; until then it
   plays nothing.
+- **Volume bar** (Settings > Volume bar: On / Off, ships On; [`volume.js`](apps/the_grid/volume.js)):
+  The Grid draws above BMW's screen, so BMW's volume pop-up is hidden under it. The Grid shows its
+  own instead, for a moment after the level or mute changes: the car's level and mute, read 4 times
+  a second while The Grid is on screen from the audio manager's sink list
+  (`org.genivi.am.commandinterface.CommandControl.getListMainSinks`, sink 1; on this car the level
+  follows the knob, while `getVolume` and the change event stay silent). With nothing playing the
+  car reads 0, so a source starting or stopping shows nothing. The top of the car's scale isn't
+  known: the bar fills to 40 until the car shows more, and the number is always shown.
 - **Emulator:** `node kit/tools/grid_emu/build.js` makes one web page that runs The Grid's own code
   (the staged build the Store compiles) on the car's GPU draw engine (WebAssembly), with the cluster
   and the HUD drawn from what the app sends cluster-render and a simulated X4 M Competition and DME

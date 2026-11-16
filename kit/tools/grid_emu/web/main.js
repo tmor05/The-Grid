@@ -246,6 +246,11 @@ async function boot() {
     chk('mhd', (v) => { car.env.mhd = v; });
     chk('mhdflap', (v) => { car.env.mhdFlap = v; if (!v) car.mhdFlapCmd = null; });
     chk('hotoil', (v) => { car.env.hotOil = v; });
+    /* ---------- the car's audio: the volume knob, mute, and whether anything plays (host.js's AudioManager) ---------- */
+    out('avol', (v) => { hu.sig.audio({ volume: v }); return String(v); });
+    chk('amute', (v) => hu.sig.audio({ mute: v }));
+    chk('aplay', (v) => hu.sig.audio({ playing: v }));
+    const volKnob = (d) => { const i = $('#avol'); i.value = Math.max(0, Math.min(Number(i.max), Number(i.value) + d)); i.dispatchEvent(new Event('input')); };
     $('#mis').addEventListener('change', (e) => { car.env.misfireCyl = Number(e.target.value); });
     $$('#awd button').forEach((b) => b.addEventListener('click', () => { car.awd = b.dataset.a; }));
     $('#cold').addEventListener('click', () => { pilot.stop(); car.reset(true); car.startEngine(); });
@@ -347,6 +352,8 @@ async function boot() {
         else if (k === 'E') car.paddle(1);
         else if (e.key === '[') turn(-1);
         else if (e.key === ']') turn(1);
+        else if (e.key === '-') volKnob(-1);
+        else if (e.key === '=' || e.key === '+') volKnob(1);
         else if (e.key === 'Enter') { press(true); setTimeout(() => press(false), 120); }
         else if (e.key === 'Backspace') { e.preventDefault(); if (rd.conn.grab) tilt('W'); else hu.hmi('back'); }
         else return;

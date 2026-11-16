@@ -20,6 +20,7 @@ const SPEC = require('APPDIR/kit/app-spec.json');
 
 const DATA = '/data';
 const TASU = 'com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu';
+const AMCC = 'org.genivi.am.commandinterface.CommandControl';
 
 /**
  * ctx.signals: watch() keeps the handlers; feed(iface, field, value) calls them as a SOME/IP
@@ -29,6 +30,14 @@ const TASU = 'com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu';
 function makeSignals(log) {
     const subs = Object.create(null);
     const tasu = { cbs: [], avail: [], ecu: null, up: true, sent: 0 };
+    // the car's AudioManager, as read on the car (2026-11-16): sink 1 "MainSink" carries the knob's level and the
+    // mute; with nothing playing it reads 0. getVolume() answers 0 there, so the stand-in does too.
+    const am = { volume: 27, mute: false, playing: true, up: true, reads: 0 };
+    const sinks = () => [
+        { sinkID: 1, name: 'MainSink', availability: { availability: 'A_AVAILABLE', availabilityReason: 0 },
+            volume: am.playing ? am.volume : 0, muteState: am.mute ? 'MS_MUTED' : 'MS_UNMUTED', sinkClassID: 6 },
+        { sinkID: 1024, name: 'MediaSink_Front', availability: { availability: 'A_AVAILABLE', availabilityReason: 0 }, volume: 0, muteState: 'MS_UNKNOWN', sinkClassID: 2 },
+    ];
     const feed = (iface, field, value) => (subs[iface] || []).forEach((s) => {
         if (!s.h[field]) return;
         s.res.available = true;
@@ -53,12 +62,24 @@ function makeSignals(log) {
             return res;
         },
         proxy: async (iface, inst) => {
+            if (iface === AMCC) {
+                // like the car: no config without the app.json "signals" entry
+                if (DECLARED.indexOf(iface) < 0) return Promise.reject(new Error('no SOME/IP config for ' + iface + ' (add it to app.json "signals")'));
+                return am.up ? { iface, inst, isAvailable: () => am.up } : no();
+            }
             if (iface !== TASU) return no();
             return { iface, inst, isAvailable: () => tasu.up };
         },
         on: async (p, name, fn) => { if (p && p.iface === TASU && name === 'sendTasuResponse') tasu.cbs.push(fn); },
         onAvailable: async (p, fn) => { if (p && p.iface === TASU) { tasu.avail.push(fn); setTimeout(() => fn(tasu.up), 300); } },
         call: async (p, method, req) => {
+            if (p && p.iface === AMCC) {
+                if (!am.up) return no();
+                am.reads++;
+                if (method === 'getListMainSinks') return { listMainSinks: sinks(), amError: 'E_OK' };
+                if (method === 'getVolume') return { mainVolume: 0, amError: 'E_OK' };
+                return no();
+            }
             if (!p || p.iface !== TASU || method !== 'sendTasuRequest') return no();
             if (!tasu.up) return { TasuErrorEnum: 'APP_REQUEST_NOT_ACCEPTED' };
             tasu.sent++;
@@ -77,7 +98,9 @@ function makeSignals(log) {
         loadConfig: () => { throw new Error('emulator: no SOME/IP configs'); },
     };
     return {
-        api, feed, tasu,
+        api, feed, tasu, am,
+        /** The car's volume knob, mute and whether anything plays (the page's Car audio box). */
+        audio(o) { Object.assign(am, o || {}); },
         setEcu(fn) { tasu.ecu = fn; },
         /** The diagnostic link up or down (the page's "DME link" switch). */
         link(up) { tasu.up = !!up; tasu.avail.forEach((fn) => { try { fn(tasu.up); } catch (e) { /* app's */ } }); },

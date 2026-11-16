@@ -64,6 +64,16 @@
     <div class="keys"><kbd>↑</kbd> gas <kbd>↓</kbd>/<kbd>Space</kbd> brake <kbd>←</kbd><kbd>→</kbd> steer <kbd>P</kbd><kbd>R</kbd><kbd>N</kbd><kbd>D</kbd><kbd>M</kbd> gears <kbd>Q</kbd><kbd>E</kbd> paddles</div>
   </section>
 
+  <section class="box" id="carvol">
+    <h2>Car audio</h2>
+    <label class="slider"><span>Volume knob <small>− =</small></span><input type="range" id="avol" min="0" max="40" value="27"><output id="avolv">27</output></label>
+    <div class="checks">
+      <label><input type="checkbox" id="amute"> Mute</label>
+      <label><input type="checkbox" id="aplay" checked> Something playing (radio, CarPlay)</label>
+    </div>
+    <p class="note">The car's own volume, as its audio manager reports it. The Grid covers BMW's volume pop-up, so it draws its own bar for a moment when the level or mute changes (setting <b>Volume bar</b>). With nothing playing the car reads 0, and starting or stopping a source shows no bar.</p>
+  </section>
+
   <section class="box" id="sfxbox">
     <h2>Sounds <button id="sfxmute" class="mini">mute</button></h2>
     <div class="sel wide two" id="sfxset"><button data-v="off">Off</button><button data-v="on">On</button></div>

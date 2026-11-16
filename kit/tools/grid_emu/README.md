@@ -31,7 +31,8 @@ the quarter in about 11.8 s at 116 mph), not your car.
 
 `↑` throttle (held), `↓` or `Space` brake, `←` `→` steer, `P` `R` `N` `D` (again: S) `M` gears,
 `Q` `E` paddles. The center screen takes the mouse or a finger as touch; the iDrive knob turns with
-the mouse wheel or `[` `]`, `Enter` presses, `Backspace` is BACK. The autopilot drives a launch,
+the mouse wheel or `[` `]`, `Enter` presses, `Backspace` is BACK. The car's volume knob is `-` `=` (the Car audio box:
+level, mute, whether anything plays; The Grid's own volume bar shows over its screen). The autopilot drives a launch,
 cruise, highway, back roads or track laps. Cold start puts every fluid at the outside temperature.
 
 ## Files
