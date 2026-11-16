@@ -146,6 +146,14 @@ assert.deepStrictEqual(cl.options.map((o) => o[0]), ['whole', 'middle', 'off']);
 const edge = spec.settings.find((s) => s.key === 'clusterEdge');
 assert.strictEqual(edge.default, '660');
 assert.deepStrictEqual(edge.options.map((o) => parseInt(o[0], 10)).sort(), CUTS.slice().sort(), 'the edge options are the panel\'s cuts');
+// every interface main.js watches is declared in app.json "signals" (0.4.3 / 0.4.4 left the KOMBI out: no fuel on the car)
+const watched = Array.from(main.matchAll(/^\s*\['((?:de|com)\.[A-Za-z0-9.]+)', \{/gm)).map((m) => m[1]);
+assert(watched.length >= 8, 'found the watch list');
+watched.forEach((i) => assert(spec.signals[i], i + ' is watched but not in app.json "signals"'));
+assert(spec.signals['de.bmw.infotainment.KombiIF'].statusRangeTankStatus, 'the tank field is declared');
+// the gearbox temperature is read in fast rounds too (the cluster keeps the poll fast; 0.4.1 - 0.4.4 never read it)
+assert(/if \(fast && pollFuel\.n % 8 === 4\) fast = fast\.concat\(want\('egs'\) \? \['egs'\] : \[\]/.test(main), 'EGS in fast rounds');
+assert(/if \(!pidsAsked\) await logObdPids\(\);/.test(main), 'the OBD PID list goes to the log once');
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('test_grid_panel: ok (' + layers.length + ' layers, ' + MB.toFixed(1) + ' MB of pixel memory)');

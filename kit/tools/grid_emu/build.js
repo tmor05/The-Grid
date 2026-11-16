@@ -68,6 +68,9 @@ let rev = '';
 try { rev = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim(); } catch (e) { /* not a checkout */ }
 const dirty = (() => { try { return execFileSync('git', ['status', '--porcelain', 'apps/the_grid', 'kit/runtime'], { cwd: ROOT }).toString().trim() ? '+' : ''; } catch (e) { return ''; } })();
 fs.writeFileSync(path.join(GEN, 'build.js'), 'module.exports = ' + JSON.stringify({ version: spec.version, rev: rev + dirty, built: new Date().toISOString() }) + ';\n');
+// the SOME/IP interfaces app.json declares: on the car any other one has no config, and the emulator refuses it the same way
+const appJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps', 'the_grid', 'app.json'), 'utf8'));
+fs.writeFileSync(path.join(GEN, 'signals.js'), 'module.exports = ' + JSON.stringify(Object.keys(appJson.signals || {})) + ';\n');
 
 // 4. the bundle
 const shim = (f) => path.join(WEB, 'shims', f);

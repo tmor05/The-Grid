@@ -337,6 +337,14 @@ function ecus(car, dmeCfg, xCfg, onWrite) {
         }
         if (sid === 0x01) {
             const pid = hex2(d[0]), hit = byPid[pid];
+            if (d[0] % 0x20 === 0 && d[0] <= 0x60) {
+                // the supported-PID bit maps: PIDs base+1..base+32, the last bit = the next map exists
+                const have = Object.keys(byPid).map((p) => parseInt(p, 16)).filter((p) => v[byPid[hex2(p)][1]] != null);
+                const b = [0, 0, 0, 0];
+                have.forEach((p) => { const i = p - d[0] - 1; if (i >= 0 && i < 32) b[i >> 3] |= 0x80 >> (i & 7); });
+                if (have.some((p) => p > d[0] + 0x20)) b[3] |= 1;
+                return [0x41, d[0]].concat(b);
+            }
             if (!hit || v[hit[1]] == null) return nrc(0x01, 0x31);
             return [0x41, d[0]].concat(encode(hit[0], v[hit[1]]));
         }

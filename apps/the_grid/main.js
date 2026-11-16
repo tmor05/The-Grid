@@ -512,6 +512,26 @@ mgu.run({
             if (v > 20) markAwd();                    // torque going to the front axle
         }
         /*
+         * Once per run: which OBD service 01 PIDs the engine unit has (the bit maps of PIDs 00, 20, 40, 60),
+         * to the log. Tells whether fuel pressure (0A, 22, 23) and ethanol (52) can come from it at all.
+         */
+        let pidsAsked = false;
+        async function logObdPids() {
+            pidsAsked = true;
+            const h2 = (n) => ('0' + n.toString(16).toUpperCase()).slice(-2), have = [];
+            for (let base = 0; base <= 0x60; base += 0x20) {
+                const c = { obd: h2(base), bytes: 4, at: 0 };
+                await rd.read(c);
+                const r = rd.raws[rd.key(c)], b = r && r.ok ? r.bytes.split(' ').slice(2, 6).map((x) => parseInt(x, 16)) : null;
+                if (!b || b.length < 4) { log.info('OBD PIDs ' + h2(base) + ': ' + (r ? r.why || r.bytes : 'no reply')); break; }
+                for (let i = 0; i < 31; i++) if (b[i >> 3] & (0x80 >> (i & 7))) have.push(base + 1 + i);   // bit 32 = the next map
+                if (!(b[3] & 1)) break;                 // PID base+20 not there: no further map
+            }
+            const yn = (p) => (have.indexOf(p) >= 0 ? 'yes' : 'no');
+            log.info('OBD PIDs of the engine unit: ' + (have.map(h2).join(' ') || 'none')
+                + ' (0A fuel pressure ' + yn(0x0A) + ', 22 ' + yn(0x22) + ', 23 ' + yn(0x23) + ', 52 ethanol ' + yn(0x52) + ')');
+        }
+        /*
          * Fast (~2/s) for the values of the page on screen (Fuel & ignition, or boost on Engine when it
          * comes from the engine unit), all of them every 5 s otherwise so the history keeps filling.
          */
@@ -532,16 +552,22 @@ mgu.run({
             // The Grid: Drive reads boost fast and the rest every 8th round; Vitals keeps boost fresh too
             if (fast && fast.length === 1 && fast[0] === 'boost' && pollFuel.n % 8 === 0) fast = fast.concat(FUEL.filter(want));
             if (onFuelPage && needBoost && fast) fast = fast.concat(['boost']);
+            // the gearbox temperature (and the engine unit's oil temperature) only came in slow rounds,
+            // and the cluster keeps the poll fast all the time: every 8th fast round reads them too (~5 s)
+            if (fast && pollFuel.n % 8 === 4) fast = fast.concat(want('egs') ? ['egs'] : [], needOil ? ['oil'] : []);
             const misNow = want('misfire') && (!fast || (onFuelPage && pollFuel.n % 4 === 0));
             try {
                 if (link.available) {
-                    const keys = (fast || FUEL.filter(want).concat(needBoost ? ['boost'] : [], needOil ? ['oil'] : [], want('egs') ? ['egs'] : [])).concat(misNow ? ['misfire'] : []);
+                    if (!pidsAsked) await logObdPids();
+                    const keys =(fast || FUEL.filter(want).concat(needBoost ? ['boost'] : [], needOil ? ['oil'] : [], want('egs') ? ['egs'] : [])).concat(misNow ? ['misfire'] : []);
                     for (const k of keys) {
                         if ((fuelFail[k] || 0) >= 3 && Date.now() - (fuelTry[k] || 0) < 30000) continue;
                         fuelTry[k] = Date.now();
                         if (k === 'lmv') { await readLmv(); continue; }
                         const v = k === 'boost' ? await readBoost() : k === 'misfire' ? await readMisfire() : PAIR[k] ? await readPair(k) : await rd.value(k, dme[k]);
                         if (k === 'egs' || k === 'timing') { const c = dme[k][rd.pick[k] || 0], r = c && rd.raws[rd.key(c)]; if (r) logRaw(k === 'egs' ? 'EGS' : 'timing', r.bytes || r.why); }
+                        // every candidate's reply (or refusal) of a value that gave nothing, to see what this engine unit answers
+                        if (v === null && Array.isArray(dme[k])) dme[k].forEach((c) => { const r = rd.raws[rd.key(c)]; if (r) logRaw(k + ' ' + DidReader.label(c), r.why + (r.bytes ? ' [' + r.bytes + ']' : '')); });
                         // the first replies of the target / actual identifiers go to the log, to check their scaling
                         if (PAIR[k]) PAIR[k].forEach((x) => { const c = (dme[x] || [])[rd.pick[x] || 0], r = c && rd.raws[rd.key(c)]; if (r) logRaw(x + ' ' + DidReader.label(c), r.bytes || r.why); });
                         if (k === 'oil' && v !== null && Date.now() - oilCarT < 15000) continue;      // the car's own value came meanwhile

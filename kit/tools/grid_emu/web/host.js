@@ -15,6 +15,7 @@ const { Display, HMI } = require('APPDIR/kit/display');
 const themes = require('APPDIR/kit/themes');
 const { listSheet } = require('APPDIR/kit/sheet');
 const mguParts = require('GEN/mgu-parts');
+const DECLARED = require('GEN/signals');
 const SPEC = require('APPDIR/kit/app-spec.json');
 
 const DATA = '/data';
@@ -39,8 +40,15 @@ function makeSignals(log) {
         tasu.cbs.forEach((fn) => { try { fn({ udsResponse: frame, errorCode: 'NO_ERROR' }); } catch (e) { log.warn('TASU listener: ' + e); } });
     };
     const api = {
-        watch: async (iface, inst, handlers) => {
+        watch: async (iface, inst, handlers, wlog) => {
             const res = { iface, available: false, proxy: null, error: null, shutdown: () => Promise.resolve() };
+            // like the car: an interface the app's app.json "signals" doesn't declare has no SOME/IP config
+            if (DECLARED.indexOf(iface) < 0) {
+                const e = new Error('no SOME/IP config for ' + iface + ' (add it to app.json "signals")');
+                res.error = String(e);
+                if (wlog) wlog.warn('signals ' + iface + ': ' + e);
+                return res;
+            }
             (subs[iface] = subs[iface] || []).push({ h: handlers || {}, res });
             return res;
         },
