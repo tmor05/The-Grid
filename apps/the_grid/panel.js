@@ -189,6 +189,35 @@ const MODE_TEXT = { size: 56, cells: 1 };
 const BOOST_TEXT = { size: 46, cells: 5 };       // '-10.7' (idle vacuum in psi) fits inside the core
 
 /** The speedometer's scale in the display unit. */
+/* The dials' numbers: size, where the major ticks' inner ends are, and the clearance kept from them. */
+const LABEL_SIZE = 26, LABEL_CAP = 19, LABEL_BASE = 10;   // px; cap height of gridhead at 26 px; baseline below the centre
+const TICK_MAJOR = 10, LABEL_GAP = 7;
+/** The radius for a number of width w at angle a (degrees, 0 = up): its box's far edge LABEL_GAP inside the ticks. */
+function labelRadius(R, a, w) {
+    const r = a * Math.PI / 180, reach = Math.abs(Math.sin(r)) * w / 2 + Math.abs(Math.cos(r)) * LABEL_CAP / 2;
+    return R * 0.76 - TICK_MAJOR - LABEL_GAP - reach;
+}
+/** The big speed's ink at its full size, relative to the speedometer's centre: { top, bottom } (px). */
+function speedInk(B) {
+    const s = SPEED_TEXT.size / B.size, y = SPEED_TEXT.y - SP.cy;
+    return { top: y + PAD * s, bottom: y + B.base * s };
+}
+/** The width of a speed's ink at full size (px): glyph widths and the track between them, as the text layer lays it out. */
+function speedInkWidth(B, str) {
+    let w = 0, n = 0;
+    String(str).split('').forEach((ch) => { const i = B.chars.indexOf(ch); if (i >= 0) { w += B.adv[i]; n++; } });
+    return (w + Math.max(0, n - 1) * TRACK) * SPEED_TEXT.size / B.size;
+}
+/** How wide the big speed may be: twice the distance from the centre to the nearest number beside it, less a margin. */
+function speedRoom(boxes, ink) {
+    let half = Infinity;
+    boxes.forEach((b) => {
+        if (b.y1 < ink.top || b.y0 > ink.bottom) return;                 // above or below the number
+        half = Math.min(half, b.x0 > 0 ? b.x0 : b.x1 < 0 ? -b.x1 : 0);
+    });
+    return 2 * Math.max(0, half - SPEED_MARGIN);
+}
+const SPEED_MARGIN = 6;
 function speedScale(mph) { return mph ? { max: 200, major: 20, minor: 10 } : { max: 320, major: 40, minor: 20 }; }
 /** The tach's top in rpm: the redline plus at least 800, in whole thousands. */
 function rpmTop(red) { return Math.max(6000, Math.ceil(((G.isNum(red) ? red : 7000) + 800) / 1000) * 1000); }
@@ -202,7 +231,7 @@ class GridPanel {
         this.ctx = ctx; this.log = ctx.log; this.src = src;
         this.path = socketPath || process.env.CLUSTER_RENDER_SOCK || DEFAULT_PATH;
         this.cr = null; this.sent = {}; this.timer = null; this.picKey = ''; this.visible = null;
-        this.small = null; this.big = null; this.letters = null;
+        this.small = null; this.big = null; this.letters = null; this.speedRoom = Infinity;
         this.floor = { rate: 0.04, off: 0, t0: Date.now() };
         this.streak = { rate: 0, off: 0, n: -1 };
         this.bend = 0; this.bendT = Date.now(); this.hot = 0;
@@ -351,14 +380,20 @@ class GridPanel {
         cv.circle(d.cx, d.cy, d.R * 0.80, H.A(t.bg, 0.9));
         H.neonArc(cv, d.cx, d.cy, d.R * 1.0, 2, A0 - 3, A1 + 3, H.A(c, 0.6), 0.8);
         H.neonArc(cv, d.cx, d.cy, d.R * 0.80, 1, A0, A1, H.A(c, 0.25), 0);
-        H.ticks(cv, d.cx, d.cy, d.R * 0.76, d.R * 0.79, A0, A1, labels.minor, H.A(c, 0.45), { major: labels.every, majorLen: 10, majorW: 2.5, majorC: H.A(c, 0.9) });
-        labels.text.forEach((s, i) => {
-            const a = A0 + (A1 - A0) * i / (labels.text.length - 1), p = H.pol(d.cx, d.cy, d.R * 0.66, a);
-            H.head(cv, s, p[0], p[1] + 10, 26, labels.red && labels.red(i) ? t.crit : H.A(t.text, 0.85), 'center', 1);
+        H.ticks(cv, d.cx, d.cy, d.R * 0.76, d.R * 0.79, A0, A1, labels.minor, H.A(c, 0.45), { major: labels.every, majorLen: TICK_MAJOR, majorW: 2.5, majorC: H.A(c, 0.9) });
+        // each number placed by its own size: its box ends LABEL_GAP inside the major ticks' inner end
+        // (all on one circle, 3-digit speeds and the tach's 10 ran into the ticks: Tyson, 2026-11-20)
+        const boxes = labels.text.map((s, i) => {
+            const a = A0 + (A1 - A0) * i / (labels.text.length - 1), w = cv.textWidth(s, LABEL_SIZE, { font: 'gridhead', literal: true, spacing: 1 });
+            const p = H.pol(d.cx, d.cy, labelRadius(d.R, a, w), a);
+            H.head(cv, s, p[0], p[1] + LABEL_BASE, LABEL_SIZE, labels.red && labels.red(i) ? t.crit : H.A(t.text, 0.85), 'center', 1);
+            const x = p[0] - d.cx, y = p[1] - d.cy;
+            return { s, x0: x - w / 2, x1: x + w / 2, y0: y - LABEL_CAP / 2, y1: y + LABEL_CAP / 2 };
         });
         H.lbl(cv, unitText, d.cx, d.cy + 92, 24, H.A(c, 0.9), 'center', 6);
         H.mono(cv, code, d.cx, d.cy - d.R * 0.44, 13, H.A(c, 0.5), 'center');
         H.brackets(cv, d.cx - d.R - 22, d.cy - d.R - 22, (d.R + 22) * 2, (d.R + 22) * 2 - 70, 26, 2, H.A(c, 0.35));
+        return boxes;
     }
 
     _pictures(force) {
@@ -383,7 +418,8 @@ class GridPanel {
         cr.pixels(L.left, null, picture(PL.w, PL.h, (cv) => {
             const n = sc.max / sc.minor, every = sc.major / sc.minor, txt = [];
             for (let s = 0; s <= sc.max; s += sc.major) txt.push(String(s));
-            this._dialFace(cv, t, { cx: SP.cx - PL.x, cy: SP.cy - PL.y, R: SP.R }, { minor: n, every, text: txt }, v.mph ? 'MPH' : 'KM/H', 'SPEED // VEH 0x30');
+            const boxes = this._dialFace(cv, t, { cx: SP.cx - PL.x, cy: SP.cy - PL.y, R: SP.R }, { minor: n, every, text: txt }, v.mph ? 'MPH' : 'KM/H', 'SPEED // VEH 0x30');
+            this.speedRoom = speedRoom(boxes, speedInk(this.big));
             READOUTS.filter((r) => r.x < W / 2).forEach((r) => tile(cv, r, PL));
         }));
         // right: the tach
@@ -473,7 +509,11 @@ class GridPanel {
             this._uni(tl.ref, 'u_code', g.codes, 'vec4'); this._uni(tl.ref, 'u_pos', g.pos, 'vec4'); this._uni(tl.ref, 'u_wid', g.wid, 'vec4');
             this._uni(tl.ref, 'u_color', color.length === 4 ? color : color.concat([1]));
         };
-        text('speed', spd === null ? '' : String(Math.round(spd)), white);
+        const ss = spd === null ? '' : String(Math.round(spd));
+        text('speed', ss, white);
+        // a wide speed (88, 1xx) is scaled down about the number's centre so it stays inside the dial's numbers
+        const spk = Math.min(1, Math.floor(this.speedRoom / Math.max(1, speedInkWidth(this.big, ss)) * 100) / 100);
+        if (this.sent.speedScale !== spk) { this.sent.speedScale = spk; this.cr.set(L.texts.speed.ref, { sx: spk, sy: spk }); }
         const gr = v.gear;
         const gc = gr ? (v.over ? col3(t.crit) : white) : dim;
         text('gear', gr && gr.num ? gr.num : '', gc);
@@ -493,4 +533,4 @@ class GridPanel {
     }
 }
 
-module.exports = { GridPanel, CUT, CUTS, CUT_MAX, FADE, PIC, SP, TA, READOUTS, speedScale, rpmTop, ARC_FS, GROUND_FS, BIGCHARS, LETTERS };
+module.exports = { GridPanel, CUT, CUTS, CUT_MAX, FADE, PIC, SP, TA, READOUTS, speedScale, rpmTop, labelRadius, speedInk, speedInkWidth, speedRoom, SPEED_TEXT, LABEL_SIZE, LABEL_CAP, TICK_MAJOR, A0, A1, ARC_FS, GROUND_FS, BIGCHARS, LETTERS };

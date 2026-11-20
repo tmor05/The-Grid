@@ -163,9 +163,26 @@ function start(canvases, opts) {
         if (!l.tex) l.tex = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, l.tex);
         if (l.dirty) {
-            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            /*
+             * As the KOMBI: GL's default unpack alignment of 4. The service sends an asset's rows
+             * tightly packed, so an r8 asset whose width isn't a multiple of 4 is read with each row
+             * 1-3 bytes late and draws sheared on the car (0.4.1-0.4.8's gear letters, 810 px wide).
+             * The same bytes are laid out here as the car's GPU reads them.
+             */
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
             const fmt = l.bpp === 1 ? gl.LUMINANCE : gl.RGBA;
-            gl.texImage2D(gl.TEXTURE_2D, 0, fmt, l.w, l.h, 0, fmt, gl.UNSIGNED_BYTE, l.px);
+            const rowB = l.w * l.bpp, stride = Math.ceil(rowB / 4) * 4;
+            let px = l.px;
+            if (stride !== rowB) {
+                px = new Uint8Array(stride * l.h);
+                px.set(l.px.subarray(0, Math.min(l.px.length, px.length)));
+                if (!l.warnedAlign) {
+                    l.warnedAlign = true;
+                    const why = 'asset ' + l.w + 'x' + l.h + ' r8: width not a multiple of 4, its rows shear on the car';
+                    sc.errors.push(why); log('warn', why);
+                }
+            }
+            gl.texImage2D(gl.TEXTURE_2D, 0, fmt, l.w, l.h, 0, fmt, gl.UNSIGNED_BYTE, px);
             const lin = (l.msg.sampling || 'nearest') === 'bilinear' ? gl.LINEAR : gl.NEAREST;
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, lin); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, lin);
             const wrap = l.msg.wrap === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE;

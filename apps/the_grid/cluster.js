@@ -215,7 +215,15 @@ void main() {
 /* ---------- the glyph atlas: Orbitron digits from The Grid's own font ---------- */
 const CHARS = '0123456789.-';
 const PAD = 6, TRACK = 6;
-/** The atlas: the given characters (default digits, point, minus) of Orbitron at size (default 90). */
+/**
+ * The atlas: the given characters (default digits, point, minus) of Orbitron at size (default 90).
+ * Its width is padded to a multiple of 4 (blank columns on the right). The KOMBI uploads an r8
+ * asset with GL's default unpack alignment (4 bytes a row: cluster-render's own map atlas keeps
+ * its width a multiple of 4 for this, kit/map_geometry.h), so a row of 810 bytes is read as 812
+ * and every row slips 2 px: 0.4.1-0.4.8's 'DMNPRS' atlas (810 px) drew the gear letters sheared
+ * on the car (Tyson's photos 2026-11-20: P, and the D/S/M beside the gear), while the digit
+ * atlases (1044, 1220 px) drew right.
+ */
 function buildAtlas(size, chars) {
     const CH = chars || CHARS;
     const f = fonts.get('gridnum', size || 90, '0123456789');
@@ -223,7 +231,7 @@ function buildAtlas(size, chars) {
     const cw = Math.ceil(Math.max.apply(null, gl.map((g) => g[2]))) + 2 * PAD;
     const top = Math.max.apply(null, gl.map((g) => -g[5]));
     const ch = top + 2 * PAD + 2, base = PAD + top;
-    const aw = cw * CH.length, px = Buffer.alloc(aw * ch);
+    const aw = Math.ceil(cw * CH.length / 4) * 4, px = Buffer.alloc(aw * ch);
     gl.forEach((g, i) => {
         for (let y = 0; y < g[3]; y++) {
             for (let x = 0; x < g[2]; x++) {

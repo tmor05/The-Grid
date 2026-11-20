@@ -133,9 +133,13 @@ window.draw = function (state, t) {
     if (tex[ref]) return tex[ref];
     const a = state.layers[ref], t2 = gl.createTexture(), px = Uint8Array.from(atob(a.px), (c) => c.charCodeAt(0));
     gl.bindTexture(gl.TEXTURE_2D, t2);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    // as the KOMBI: GL's default unpack alignment (4), so an r8 asset whose width isn't a multiple of 4 shears as on the car
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     const fmt = a.bpp === 1 ? gl.LUMINANCE : gl.RGBA;
-    gl.texImage2D(gl.TEXTURE_2D, 0, fmt, a.w, a.h, 0, fmt, gl.UNSIGNED_BYTE, px);
+    const rowB = a.w * a.bpp, stride = Math.ceil(rowB / 4) * 4;
+    let up = px;
+    if (stride !== rowB) { up = new Uint8Array(stride * a.h); up.set(px.subarray(0, Math.min(px.length, up.length))); errs.push('asset ' + a.w + 'x' + a.h + ' r8: width not a multiple of 4 (shears on the car)'); }
+    gl.texImage2D(gl.TEXTURE_2D, 0, fmt, a.w, a.h, 0, fmt, gl.UNSIGNED_BYTE, up);
     const lin = (a.msg.sampling || 'nearest') === 'bilinear' ? gl.LINEAR : gl.NEAREST;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, lin); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, lin);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);

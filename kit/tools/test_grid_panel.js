@@ -6,7 +6,9 @@
  *   - nothing drawn under the cut (setting "Cluster bottom edge"): only the ground shader reaches it
  *   - pixel memory well under cluster-render's shared 16 MB
  *   - the fuel tile: litres -> gallons, warn / crit colours when low
- *   - every glyph atlas fits cluster-render's 2048 px asset limit
+ *   - the dials' numbers clear the tick marks and each other, for mph, km/h and every tach top
+ *   - every glyph atlas fits cluster-render's 2048 px asset limit, and its width is a multiple of 4
+ *     (the KOMBI reads r8 rows 4 bytes at a time; an 810 px atlas drew the gear letters sheared)
  *   - the safety gate: no live speed from the car -> every layer hidden; live again -> shown
  *   - main.js: the setting's three modes, an older saved "on" counts as the whole cluster, the
  *     gate needs the vehicle service, a real speed and no demo data
@@ -76,12 +78,26 @@ layers.forEach((l) => {
 // atlases fit (a refused asset is ref 0: its text would be garbage)
 sent.filter((m) => m.op === 'bind').forEach((b) => assert(b.a > 0, 'a text layer bound to a refused atlas'));
 [[90, undefined], [132, BIGCHARS], [132, LETTERS]].forEach(([s, ch]) => { const a = buildAtlas(s, ch); assert(a.aw <= 2048 && a.ah <= 2048, 'atlas ' + s + ' ' + ch + ': ' + a.aw); });
+// r8 rows a multiple of 4 bytes: the KOMBI uploads with GL's default unpack alignment (4), so an
+// 810 px atlas (0.4.1-0.4.8's gear letters) is read 2 bytes late each row and draws sheared on the car
+const HCHARS = fs.readFileSync(path.join(APP, 'headup.js'), 'utf8').match(/HCHARS = '([^']+)'/)[1];
+[[90, undefined], [132, BIGCHARS], [132, LETTERS], [90, HCHARS]].forEach(([s, ch]) => {
+    const a = buildAtlas(s, ch);
+    assert.strictEqual(a.aw % 4, 0, 'atlas ' + s + ' ' + (ch || 'digits') + ' width ' + a.aw + ' is not a multiple of 4: it shears on the car');
+    assert.strictEqual(a.px.length, a.aw * a.ah, 'atlas ' + s + ' pixels match its size');
+});
+sent.filter((m) => m.op === 'layer' && m.kind === 'asset' && m.o.format === 'r8').forEach((m) => assert.strictEqual(m.o.w % 4, 0, 'r8 asset ' + m.ref + ' width ' + m.o.w + ' shears on the car'));
+// the gear letters, as the car's GPU reads them: each glyph's own cell, nothing sheared into the next
+{
+    const a = buildAtlas(132, LETTERS), stride = Math.ceil(a.aw / 4) * 4;
+    assert.strictEqual(stride, a.aw, 'letters atlas read row for row');
+}
 
 // the gate
 const visibleNow = () => {
     const vis = {};
     layers.forEach((l) => { vis[l.ref] = false; });
-    sent.filter((m) => m.op === 'set').forEach((m) => { vis[m.ref] = m.o.visible; });
+    sent.filter((m) => m.op === 'set' && 'visible' in m.o).forEach((m) => { vis[m.ref] = m.o.visible; });
     return Object.keys(vis).filter((k) => vis[k]).length;
 };
 assert.strictEqual(visibleNow(), layers.length, 'live speed: every layer shown');
@@ -173,4 +189,38 @@ const ftLay = layers.find((l) => l.ref === ftL.ref);
 assert(ftLay && ftLay.o.x >= 36 && ftLay.o.x + ftLay.o.w <= 36 + 166 - 10, 'the fuel tile text inside its tile: ' + JSON.stringify(ftLay && [ftLay.o.x, ftLay.o.w]));
 
 fs.rmSync(dir, { recursive: true, force: true });
+// the dials' numbers clear the tick marks (0.4.8: 3-digit speeds and the tach's 10 ran into them) and each other
+{
+    const P = require(path.join(dir, 'panel.js'));
+    const { Recorder } = require(path.join(dir, 'kit', 'record.js'));
+    const rec = new Recorder(10, 10, { textScale: 1 });
+    const sets = [];
+    [true, false].forEach((mph) => { const sc = P.speedScale(mph), t = []; for (let x = 0; x <= sc.max; x += sc.major) t.push(String(x)); sets.push(t); });
+    [6000, 7000, 8000, 9000, 10000].forEach((top) => { const t = []; for (let i = 0; i <= top / 1000; i++) t.push(String(i)); sets.push(t); });
+    sets.forEach((txt) => {
+        const boxes = txt.map((s, i) => {
+            const a = P.A0 + (P.A1 - P.A0) * i / (txt.length - 1), w = rec.textWidth(s, P.LABEL_SIZE, { font: 'gridhead', literal: true, spacing: 1 });
+            const r = P.labelRadius(P.SP.R, a, w), rad = a * Math.PI / 180;
+            const reach = Math.abs(Math.sin(rad)) * w / 2 + Math.abs(Math.cos(rad)) * P.LABEL_CAP / 2;
+            assert(P.SP.R * 0.76 - P.TICK_MAJOR - (r + reach) >= 5, 'label ' + s + ' clears the ticks');
+            const x = r * Math.sin(rad), y = -r * Math.cos(rad);
+            return { s, x0: x - w / 2, x1: x + w / 2, y0: y - P.LABEL_CAP / 2, y1: y + P.LABEL_CAP / 2 };
+        });
+        boxes.forEach((b, i) => { const n = boxes[i + 1]; if (n) assert(b.x1 + 4 <= n.x0 || n.x1 + 4 <= b.x0 || b.y1 + 4 <= n.y0 || n.y1 + 4 <= b.y0, 'labels ' + b.s + ' and ' + n.s + ' apart'); });
+        if (sets.indexOf(txt) > 1) return;
+        // the big speed, scaled as _update scales it, stays inside the speedometer's numbers at every speed
+        const big = buildAtlas(132, BIGCHARS), ink = P.speedInk(big), room = P.speedRoom(boxes, ink);
+        assert(room >= (sets.indexOf(txt) === 0 ? 220 : 180), 'room for the speed: ' + room);   // mph 228 px, km/h 188 px (its numbers sit at other angles)
+        for (let v = 0; v <= Number(txt[txt.length - 1]); v++) {
+            const w = P.speedInkWidth(big, String(v)), k = Math.min(1, Math.floor(room / w * 100) / 100);
+            const half = w * k / 2, mid = (ink.top + ink.bottom) / 2, top = mid - (mid - ink.top) * k, bot = mid + (ink.bottom - mid) * k;
+            boxes.forEach((b) => assert(b.y1 < top || b.y0 > bot || b.x0 >= half + 4 || b.x1 <= -half - 4, 'speed ' + v + ' clear of ' + b.s));
+            if (v < 10) assert.strictEqual(k, 1, 'a 1-digit speed at full size');
+        }
+    });
+    // and the panel sends that scale (the test's car does 69 mph: full size)
+    const sx = sent.filter((m) => m.op === 'set' && 'sx' in m.o);
+    assert(sx.length >= 1 && sx[sx.length - 1].o.sx > 0 && sx[sx.length - 1].o.sx <= 1, 'the speed layer gets its scale');
+}
+
 console.log('test_grid_panel: ok (' + layers.length + ' layers, ' + MB.toFixed(1) + ' MB of pixel memory)');
