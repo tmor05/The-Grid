@@ -161,5 +161,16 @@ assert.deepStrictEqual(fuelTile.options.map((o) => o[0]).sort(), ['ethanol', 'hp
 assert(/function fuelTileDesc\(d\)/.test(main) && /settings\.get\('fuelTile'\) === 'ethanol'/.test(main), 'the fuel tile chooses by setting');
 assert(/key: 'fuelTile'/.test(fs.readFileSync(path.join(APP, 'panel.js'), 'utf8')), 'the panel fuel slot is generic (fuelTile)');
 
+// the fuel-content tile holds four digits (HPFP rail in psi runs to ~5000): every glyph inside its text layer,
+// the layer inside its tile (Tyson, 2026-11-20: "doesn't have enough room for four digits")
+const ftL = p.L.texts.fuelTile;
+assert(ftL && ftL.cells >= 4, 'the fuel tile has 4 cells: ' + (ftL && ftL.cells));
+['4980', '2320', '725', '300', '85'].forEach((s) => {
+    const g = p._glyphs(s, ftL);
+    for (let i = 0; i < s.length; i++) assert(g.pos[i] >= 0 && g.pos[i] + g.wid[i] <= ftL.w + 0.01, s + ': glyph ' + i + ' inside the layer');
+});
+const ftLay = layers.find((l) => l.ref === ftL.ref);
+assert(ftLay && ftLay.o.x >= 36 && ftLay.o.x + ftLay.o.w <= 36 + 166 - 10, 'the fuel tile text inside its tile: ' + JSON.stringify(ftLay && [ftLay.o.x, ftLay.o.w]));
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('test_grid_panel: ok (' + layers.length + ' layers, ' + MB.toFixed(1) + ' MB of pixel memory)');

@@ -174,7 +174,9 @@ void main() {
 /* The readouts under the dials. */
 const TILE_H = 112, TILE_Y = 494;
 const READOUTS = [
-    { key: 'fuelTile', label: 'ETHANOL', code: 'E%', x: 36, w: 166, size: 44, cells: 3, segs: 12, zone: [2, 2] },
+    // 4 cells: HPFP rail in psi runs to four digits (idle ~700, full load ~5000); the unit goes in the header
+    // (as its code) so the number gets the tile's width (Tyson, 2026-11-20: "doesn't have enough room for four digits")
+    { key: 'fuelTile', label: 'ETHANOL', code: 'E%', x: 36, w: 166, size: 38, cells: 4, segs: 12, zone: [2, 2], unitInHeader: true },
     { key: 'iat', label: 'INTAKE', code: 'IAT', x: 210, w: 166, size: 44, cells: 3, segs: 12, zone: [0.7, 0.88] },
     { key: 'fuel', label: 'FUEL', code: 'TANK', x: 384, w: 204, size: 40, cells: 4, segs: 12, zone: [2, 2] },
     { key: 'oil', label: 'OIL', code: 'ENG', x: 1384, w: 148, size: 40, cells: 3, segs: 10, zone: [0.7, 0.88] },
@@ -370,9 +372,11 @@ class GridPanel {
             const x = r.x - o.x, y = TILE_Y - o.y;
             // the fuel tile's label / code / unit come from the value (ethanol or HPFP, by setting)
             const ft = r.key === 'fuelTile' ? (v.fuelTile || {}) : null;
-            H.panel(cv, t, x, y, r.w, TILE_H, ft ? ft.label : r.label, { code: ft ? ft.code : r.code, hatch: false, cut: 12 });
             const unit = ft ? ft.unit : r.key === 'fuel' ? (v.mph ? 'GAL' : 'L') : v.units.temp, s = r.size / S.size;
-            H.lbl(cv, unit, x + 14 + this._textWidth(S, r.cells) * s + 4, y + 32 + S.base * s, Math.max(16, r.size * 0.4), H.A(t.accent, 0.85), 'left', 1);
+            // a tile with the unit in its header shows it as the code (PSI / BAR / % E), so the number has the width
+            const code = r.unitInHeader ? String(unit || (ft ? ft.code : r.code) || '').toUpperCase() : (ft ? ft.code : r.code);
+            H.panel(cv, t, x, y, r.w, TILE_H, ft ? ft.label : r.label, { code, hatch: false, cut: 12 });
+            if (!r.unitInHeader) H.lbl(cv, unit, x + 14 + this._textWidth(S, r.cells) * s + 4, y + 32 + S.base * s, Math.max(16, r.size * 0.4), H.A(t.accent, 0.85), 'left', 1);
         };
         // left: the speedometer (transparent round it: the ground shader is under it)
         const PL = PIC.left, PR = PIC.right, PM = PIC.mid;
